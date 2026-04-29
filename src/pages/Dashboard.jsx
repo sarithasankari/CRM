@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, DollarSign, Target, TrendingUp, Calendar, Download, 
-  Handshake, ClipboardList, Mail, MoreHorizontal 
+  Handshake, ClipboardList, Mail, MoreHorizontal, Loader2, AlertCircle,
+  ArrowUpRight, ArrowDownRight, Activity, Zap, CheckCircle2, Clock
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
+import { leadsApi, dealsApi, tasksApi } from '../services/api';
 
 const chartData = [
   { name: 'Jan', actual: 4000, projected: 1000 },
@@ -14,315 +16,308 @@ const chartData = [
   { name: 'Jun', actual: 8500, projected: 3500 },
 ];
 
+const miniChartData = [
+  { value: 400 }, { value: 600 }, { value: 500 }, { value: 800 }, { value: 700 }, { value: 900 }
+];
+
 const activities = [
   { 
     id: 1, 
     type: 'deal', 
-    title: 'Deal Closed: TechFlow Inc.', 
-    meta: 'by Sarah Jenkins • 2 mins ago', 
-    badge: '$45,000',
-    badgeColor: 'bg-green-100 text-green-700',
-    iconColor: 'bg-blue-50 text-blue-500',
-    icon: <Handshake className="w-4 h-4" />
+    title: 'Deal Won: TechFlow Inc.', 
+    meta: 'Sarah Jenkins • 2 mins ago', 
+    badge: '+$45,000',
+    badgeColor: 'bg-emerald-50 text-emerald-600',
+    iconColor: 'bg-emerald-100 text-emerald-600',
+    icon: <Zap className="w-4 h-4" />
   },
   { 
     id: 2, 
     type: 'lead', 
-    title: 'New Lead: Global Logistics', 
-    meta: 'by Automated Pipeline • 1 hour ago', 
-    badge: 'QUALIFYING',
-    badgeColor: 'bg-blue-100 text-blue-700',
-    iconColor: 'bg-purple-50 text-purple-500',
-    icon: <Users className="w-4 h-4" />
+    title: 'New Enterprise Lead', 
+    meta: 'Global Logistics • 1 hour ago', 
+    badge: 'HOT',
+    badgeColor: 'bg-amber-50 text-amber-600',
+    iconColor: 'bg-amber-100 text-amber-600',
+    icon: <Target className="w-4 h-4" />
   },
   { 
     id: 3, 
     type: 'task', 
-    title: 'Task Overdue: Contract Review', 
-    meta: 'assigned to David Wu • 3 hours ago', 
-    badge: 'HIGH PRIORITY',
-    badgeColor: 'bg-red-50 text-red-600',
-    iconColor: 'bg-orange-50 text-orange-500',
-    icon: <ClipboardList className="w-4 h-4" />
+    title: 'Task Overdue', 
+    meta: 'Contract Review • 3 hours ago', 
+    badge: 'HIGH',
+    badgeColor: 'bg-rose-50 text-rose-600',
+    iconColor: 'bg-rose-100 text-rose-600',
+    icon: <Clock className="w-4 h-4" />
   },
-  { 
-    id: 4, 
-    type: 'email', 
-    title: 'Email Received: Feedback', 
-    meta: 'from Robert Moore • 5 hours ago', 
-    content: '"Looking forward to the proposal..."',
-    iconColor: 'bg-gray-100 text-gray-500',
-    icon: <Mail className="w-4 h-4" />
-  },
-];
-
-const dealClosures = [
-  { company: 'Horizon Softwares', contact: 'Alex Thompson', value: '$84,000', probability: 85, status: 'Negotiation', statusColor: 'bg-green-100 text-green-700', barColor: 'bg-green-500' },
-  { company: 'Peak Logistics', contact: 'Maria Garcia', value: '$125,000', probability: 60, status: 'Proposal', statusColor: 'bg-blue-100 text-blue-700', barColor: 'bg-yellow-500' },
-  { company: 'Stellar Media', contact: 'Chris Evans', value: '$12,400', probability: 30, status: 'Discovery', statusColor: 'bg-orange-100 text-orange-700', barColor: 'bg-red-500' },
 ];
 
 export default function Dashboard() {
+  const [stats, setStats] = useState({ leads: 0, deals: 0, revenue: 0, tasks: 0 });
+  const [dealClosures, setDealClosures] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      setIsLoading(true);
+      try {
+        const [leadsRes, dealsRes, tasksRes] = await Promise.all([
+          leadsApi.getAll(),
+          dealsApi.getAll(),
+          tasksApi.getAll()
+        ]);
+        
+        const leads = leadsRes.results || leadsRes;
+        const deals = dealsRes.results || dealsRes;
+        const tasks = tasksRes.results || tasksRes;
+
+        const totalRevenue = deals.reduce((sum, deal) => sum + parseFloat(deal.value || 0), 0);
+        const pendingTasks = tasks.filter(t => t.status !== 'Completed').length;
+
+        setStats({
+          leads: leads.length,
+          deals: deals.length,
+          revenue: totalRevenue,
+          tasks: pendingTasks
+        });
+
+        setDealClosures(deals.slice(0, 5).map(deal => ({
+          id: deal.id,
+          company: deal.title,
+          contact: deal.contact ? 'Assigned' : 'Unassigned',
+          value: `$${parseFloat(deal.value || 0).toLocaleString()}`,
+          probability: deal.stage === 'won' ? 100 : deal.stage === 'lost' ? 0 : deal.stage === 'proposal' ? 75 : 50,
+          status: deal.stage,
+          statusColor: deal.stage === 'won' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600',
+        })));
+      } catch (err) {
+        setError("Failed to sync dashboard metrics");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchDashboardData();
+  }, []);
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-[1600px] mx-auto pb-10">
+    <div className="space-y-8 animate-fade-in max-w-[1600px] mx-auto pb-10">
+      
       {/* Header */}
-      <div className="sm:flex sm:items-center sm:justify-between">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Executive Dashboard</h2>
-          <p className="mt-1 text-sm text-gray-500">Welcome back, Marcus. Here's what's happening today.</p>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Enterprise Overview</h2>
+          <p className="mt-1 text-slate-500 font-medium">Real-time performance metrics for your sales pipeline.</p>
         </div>
-        <div className="mt-4 sm:mt-0 flex space-x-3">
-          <button className="inline-flex items-center px-4 py-2.5 border border-gray-200 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none transition-colors">
-            <Calendar className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
+        <div className="flex items-center space-x-3">
+          <button className="inline-flex items-center px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
+            <Calendar className="mr-2 h-4 w-4 text-slate-400" />
             Last 30 Days
           </button>
-          <button className="inline-flex items-center px-4 py-2.5 border border-gray-200 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none transition-colors">
-            <Download className="-ml-1 mr-2 h-4 w-4 text-gray-500" />
-            Export Report
+          <button className="inline-flex items-center px-5 py-2 bg-slate-900 text-white rounded-xl text-sm font-bold shadow-lg shadow-slate-900/20 hover:-translate-y-0.5 transition-all">
+            <Download className="mr-2 h-4 w-4" />
+            Export Data
           </button>
         </div>
       </div>
 
-      {/* Top Cards */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex justify-between items-start">
-            <div className="p-2.5 bg-blue-50 rounded-lg text-blue-600">
-              <Users className="w-5 h-5" />
-            </div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-50 text-green-700">
-              +12.5%
-            </span>
-          </div>
-          <div className="mt-4">
-            <p className="text-sm font-medium text-gray-500">Total Leads</p>
-            <h3 className="text-2xl font-bold text-gray-900 mt-1">2,543</h3>
-          </div>
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+           {[1,2,3,4].map(i => (
+             <div key={i} className="h-32 bg-white rounded-3xl border border-slate-200 skeleton" />
+           ))}
         </div>
-
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex justify-between items-start">
-            <div className="p-2.5 bg-orange-50 rounded-lg text-orange-500">
-              <DollarSign className="w-5 h-5" />
-            </div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-50 text-green-700">
-              +5.2%
-            </span>
-          </div>
-          <div className="mt-4">
-            <p className="text-sm font-medium text-gray-500">Active Deals</p>
-            <h3 className="text-2xl font-bold text-gray-900 mt-1">184</h3>
-          </div>
+      ) : error ? (
+        <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-center text-rose-600 font-bold">
+          <AlertCircle className="w-5 h-5 mr-3" /> {error}
         </div>
-
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex justify-between items-start">
-            <div className="p-2.5 bg-green-50 rounded-lg text-green-600">
-              <DollarSign className="w-5 h-5" />
-            </div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-50 text-green-700">
-              +18.1%
-            </span>
-          </div>
-          <div className="mt-4">
-            <p className="text-sm font-medium text-gray-500">Monthly Revenue</p>
-            <h3 className="text-2xl font-bold text-gray-900 mt-1">$1.24M</h3>
-          </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <StatCard 
+            title="Total Prospects" 
+            value={stats.leads} 
+            trend="+12.5%" 
+            trendUp={true} 
+            icon={<Users className="w-5 h-5" />} 
+            color="text-blue-600" 
+            bg="bg-blue-50" 
+          />
+          <StatCard 
+            title="Active Deals" 
+            value={stats.deals} 
+            trend="+4.2%" 
+            trendUp={true} 
+            icon={<Handshake className="w-5 h-5" />} 
+            color="text-emerald-600" 
+            bg="bg-emerald-50" 
+          />
+          <StatCard 
+            title="Pipeline Value" 
+            value={`$${stats.revenue.toLocaleString()}`} 
+            trend="-2.1%" 
+            trendUp={false} 
+            icon={<DollarSign className="w-5 h-5" />} 
+            color="text-amber-600" 
+            bg="bg-amber-50" 
+          />
+          <StatCard 
+            title="Open Tasks" 
+            value={stats.tasks} 
+            trend="+8" 
+            trendUp={true} 
+            icon={<ClipboardList className="w-5 h-5" />} 
+            color="text-purple-600" 
+            bg="bg-purple-50" 
+          />
         </div>
+      )}
 
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex justify-between items-start">
-            <div className="p-2.5 bg-purple-50 rounded-lg text-purple-600">
-              <Target className="w-5 h-5" />
-            </div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-600">
-              24 Overdue
-            </span>
-          </div>
-          <div className="mt-4">
-            <p className="text-sm font-medium text-gray-500">Pending Tasks</p>
-            <h3 className="text-2xl font-bold text-gray-900 mt-1">42</h3>
-          </div>
-        </div>
-      </div>
-
-      {/* Middle Row */}
+      {/* Analytics Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
+        <div className="lg:col-span-2 bg-white p-8 rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 relative overflow-hidden">
+          <div className="flex items-center justify-between mb-10">
             <div>
-              <h3 className="text-lg font-bold text-gray-900">Sales Revenue</h3>
-              <p className="text-sm text-gray-500">Consolidated monthly revenue performance</p>
+              <h3 className="text-xl font-black text-slate-900 tracking-tight">Revenue Projection</h3>
+              <p className="text-sm font-medium text-slate-500 mt-1">Monthly sales performance vs forecast</p>
             </div>
-            <div className="flex items-center space-x-4 text-sm">
-              <div className="flex items-center">
-                <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
-                <span className="text-gray-600">Actual</span>
-              </div>
-              <div className="flex items-center">
-                <span className="w-3 h-3 rounded-full bg-slate-100 mr-2"></span>
-                <span className="text-gray-600">Projected</span>
-              </div>
-            </div>
-          </div>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#6B7280', fontSize: 12 }} dy={10} />
-                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }} />
-                <Bar dataKey="actual" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} barSize={40} />
-                <Bar dataKey="projected" stackId="a" fill="#f1f5f9" radius={[4, 4, 0, 0]} barSize={40} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-900">Recent Activity</h3>
-            <button className="text-sm font-medium text-blue-600 hover:text-blue-700">View All</button>
-          </div>
-          <div className="flex-1">
-            <div className="relative border-l border-gray-100 ml-3 space-y-6">
-              {activities.map((item, idx) => (
-                <div key={item.id} className="relative pl-6">
-                  <div className={`absolute -left-4 top-1 w-8 h-8 rounded-full flex items-center justify-center ${item.iconColor} border-4 border-white`}>
-                    {item.icon}
-                  </div>
-                  <div className="flex flex-col">
-                    <div className="flex items-start justify-between">
-                      <p className="text-sm font-semibold text-gray-900 leading-tight">{item.title}</p>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">{item.meta}</p>
-                    {item.badge && (
-                      <div className="mt-2">
-                        <span className={`inline-flex px-2 py-0.5 rounded text-xs font-bold ${item.badgeColor}`}>
-                          {item.badge}
-                        </span>
-                      </div>
-                    )}
-                    {item.content && (
-                      <p className="mt-2 text-sm italic text-gray-600">{item.content}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Lead Source */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col">
-          <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Source Distribution</h3>
-          <div className="space-y-6 flex-1">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-gray-700">Organic Search</span>
-                <span className="font-bold text-gray-900">42%</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div className="bg-blue-600 h-2 rounded-full" style={{ width: '42%' }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-gray-700">LinkedIn Ads</span>
-                <span className="font-bold text-gray-900">28%</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div className="bg-blue-400 h-2 rounded-full" style={{ width: '28%' }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-gray-700">Referrals</span>
-                <span className="font-bold text-gray-900">18%</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div className="bg-indigo-400 h-2 rounded-full" style={{ width: '18%' }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-gray-700">Direct Mail</span>
-                <span className="font-bold text-gray-900">12%</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div className="bg-gray-400 h-2 rounded-full" style={{ width: '12%' }}></div>
-              </div>
+            <div className="flex items-center p-1 bg-slate-50 rounded-xl">
+               <button className="px-4 py-1.5 bg-white shadow-sm rounded-lg text-xs font-bold text-slate-900">Weekly</button>
+               <button className="px-4 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Monthly</button>
             </div>
           </div>
           
-          <div className="mt-8 pt-6 border-t border-gray-100 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-gray-900">1,240</p>
-              <p className="text-xs font-semibold text-gray-400 tracking-wider uppercase mt-1">NEW LEADS</p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-gray-900">24.5%</p>
-              <p className="text-xs font-semibold text-gray-400 tracking-wider uppercase mt-1">CONV. RATE</p>
-            </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }} dy={10} />
+                <Tooltip 
+                  contentStyle={{ 
+                    borderRadius: '16px', 
+                    border: 'none', 
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
+                    padding: '12px'
+                  }} 
+                />
+                <Area type="monotone" dataKey="actual" stroke="#2563eb" strokeWidth={4} fillOpacity={1} fill="url(#colorActual)" />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
+          <Activity className="absolute -right-6 -bottom-6 w-32 h-32 text-slate-50 opacity-10" />
         </div>
 
-        {/* Upcoming Deals */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-900">Upcoming Deal Closures</h3>
-            <button className="inline-flex items-center px-3 py-1.5 border border-gray-200 rounded text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
-              Filter Table
-            </button>
+        <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 flex flex-col">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-xl font-black text-slate-900 tracking-tight">Live Pulse</h3>
+            <button className="text-xs font-bold text-blue-600 hover:underline">View History</button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-100">
-              <thead>
-                <tr>
-                  <th className="px-0 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Company</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Contact</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Value</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Probability</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {dealClosures.map((deal, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-0 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <span className="font-semibold text-gray-900 text-sm">{deal.company}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-600">{deal.contact}</span>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <span className="text-sm font-semibold text-gray-900">{deal.value}</span>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-16 bg-gray-100 rounded-full h-1.5">
-                          <div className={`${deal.barColor} h-1.5 rounded-full`} style={{ width: `${deal.probability}%` }}></div>
-                        </div>
-                        <span className="text-sm text-gray-600">{deal.probability}%</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <span className={`px-2.5 py-1 inline-flex text-xs font-bold rounded-md ${deal.statusColor}`}>
-                        {deal.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-6 flex-1">
+            {activities.map((item) => (
+              <div key={item.id} className="flex items-start space-x-4 group cursor-pointer">
+                <div className={`p-3 ${item.iconColor} rounded-2xl shadow-sm group-hover:scale-110 transition-transform`}>
+                  {item.icon}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-slate-900">{item.title}</p>
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${item.badgeColor}`}>
+                      {item.badge}
+                    </span>
+                  </div>
+                  <p className="text-xs font-medium text-slate-400 mt-1">{item.meta}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-8 pt-8 border-t border-slate-50">
+             <div className="p-4 bg-slate-900 rounded-2xl flex items-center justify-between">
+                <div>
+                   <p className="text-white text-xs font-bold uppercase tracking-widest opacity-60">Success Rate</p>
+                   <p className="text-white text-xl font-black mt-1">92.4%</p>
+                </div>
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+             </div>
           </div>
         </div>
       </div>
+
+      {/* Deal Pipeline Row */}
+      <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden">
+        <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+          <div>
+            <h3 className="text-xl font-black text-slate-900 tracking-tight">Deal Velocity</h3>
+            <p className="text-sm font-medium text-slate-500 mt-1">Top performing deals in current cycle</p>
+          </div>
+          <button className="p-2.5 bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600 transition-all">
+            <MoreHorizontal className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-slate-50/50">
+                <th className="px-8 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Company</th>
+                <th className="px-8 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Pipeline Value</th>
+                <th className="px-8 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Probability</th>
+                <th className="px-8 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest text-right">Phase</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {dealClosures.map((deal) => (
+                <tr key={deal.id} className="hover:bg-slate-50/50 transition-colors group">
+                  <td className="px-8 py-5">
+                    <p className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{deal.company}</p>
+                    <p className="text-[11px] font-medium text-slate-400 mt-0.5">Assigned to Major Accounts</p>
+                  </td>
+                  <td className="px-8 py-5">
+                    <span className="text-sm font-black text-slate-900">{deal.value}</span>
+                  </td>
+                  <td className="px-8 py-5">
+                    <div className="flex flex-col items-center max-w-[120px] mx-auto">
+                       <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div className="bg-blue-600 h-full rounded-full transition-all duration-1000" style={{ width: `${deal.probability}%` }} />
+                       </div>
+                       <span className="text-[10px] font-black text-slate-500 mt-1.5">{deal.probability}%</span>
+                    </div>
+                  </td>
+                  <td className="px-8 py-5 text-right">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${deal.statusColor}`}>
+                      {deal.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ title, value, trend, trendUp, icon, color, bg }) {
+  return (
+    <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
+      <div className="flex justify-between items-start mb-4">
+        <div className={`p-3 ${bg} ${color} rounded-2xl group-hover:scale-110 transition-transform`}>
+          {icon}
+        </div>
+        <div className={`flex items-center space-x-1 px-2 py-0.5 rounded-lg text-[10px] font-black ${trendUp ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+          {trendUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+          <span>{trend}</span>
+        </div>
+      </div>
+      <div>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{title}</p>
+        <h3 className="text-2xl font-black text-slate-900 mt-1">{value}</h3>
+      </div>
+      <div className={`absolute -right-2 -bottom-2 w-16 h-16 ${bg} opacity-5 rounded-full blur-2xl group-hover:scale-150 transition-transform`} />
     </div>
   );
 }

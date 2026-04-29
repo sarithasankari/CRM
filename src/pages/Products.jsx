@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { Package, Plus, Search, Filter, Tag, Hash, FileBox } from 'lucide-react';
+import { 
+  Package, Plus, Search, Filter, Tag, Hash, 
+  FileBox, ChevronRight, Activity, DollarSign, 
+  Archive, MoreHorizontal, Zap, X
+} from 'lucide-react';
+import Table from '../components/Table';
 
 const initialProducts = [
-  { id: 1, sku: 'PRD-1001', name: 'Cloud Migration Service Base', price: 5000, category: 'Services', stock: 'Unlimited' },
-  { id: 2, sku: 'PRD-1002', name: 'Security Audit (Enterprise)', price: 8000, category: 'Services', stock: 'Unlimited' },
-  { id: 3, sku: 'LIC-2001', name: 'CRM User License (Annual)', price: 120, category: 'Software', stock: 999 },
+  { id: 1, sku: 'PRD-1001', name: 'Cloud Migration Service Base', price: 5000, category: 'Services', stock: 'Unlimited', health: 'Optimal' },
+  { id: 2, sku: 'PRD-1002', name: 'Security Audit (Enterprise)', price: 8000, category: 'Services', stock: 'Unlimited', health: 'Optimal' },
+  { id: 3, sku: 'LIC-2001', name: 'CRM User License (Annual)', price: 120, category: 'Software', stock: 999, health: 'Steady' },
 ];
 
 export default function Products() {
@@ -21,7 +26,8 @@ export default function Products() {
       name: formData.name, 
       price: Number(formData.price), 
       category: formData.category,
-      stock: formData.stock || 'Unlimited'
+      stock: formData.stock || 'Unlimited',
+      health: 'New'
     };
     setProducts([newProduct, ...products]);
     setIsModalOpen(false);
@@ -33,125 +39,177 @@ export default function Products() {
     p.sku.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-[1400px] mx-auto pb-10">
-      <div className="sm:flex sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Products</h2>
-          <p className="mt-1 text-sm text-gray-500">Manage your product catalog, SKUs, and pricing.</p>
+  const columns = [
+    { 
+      header: 'Inventory Specification', 
+      accessor: 'name',
+      render: (row) => (
+        <div className="flex items-center">
+          <div className="h-10 w-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 mr-4 group-hover:scale-110 transition-transform">
+             <Package className="w-5 h-5" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-black text-slate-900">{row.name}</span>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">SKU: {row.sku}</span>
+          </div>
         </div>
-        <div className="mt-4 sm:mt-0 flex space-x-3">
-          <button className="inline-flex items-center px-4 py-2 border border-gray-200 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
-            <Filter className="-ml-1 mr-2 h-4 w-4 text-gray-400" />
-            Filter
+      )
+    },
+    { 
+      header: 'Vertical Protocol', 
+      accessor: 'category',
+      render: (row) => (
+        <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-50 text-slate-600 border border-slate-100">
+           {row.category}
+        </span>
+      )
+    },
+    { 
+      header: 'Unit Yield', 
+      accessor: 'price',
+      render: (row) => (
+        <div className="text-sm font-black text-slate-900">${row.price.toLocaleString()}</div>
+      )
+    },
+    { 
+      header: 'Registry Stock', 
+      accessor: 'stock',
+      render: (row) => (
+        <div className="flex items-center space-x-2">
+           <div className={`w-1.5 h-1.5 rounded-full ${row.stock === 'Unlimited' ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+           <span className="text-sm font-bold text-slate-700">{row.stock}</span>
+        </div>
+      )
+    },
+    {
+      header: '',
+      accessor: 'actions',
+      render: () => (
+        <div className="flex justify-end">
+          <button className="p-2 text-slate-300 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition-all">
+            <MoreHorizontal className="w-4 h-4" />
           </button>
-          <button onClick={() => setIsModalOpen(true)} className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors">
-            <Plus className="-ml-1 mr-2 h-4 w-4" />
+        </div>
+      )
+    }
+  ];
+
+  return (
+    <div className="space-y-8 animate-fade-in max-w-[1400px] mx-auto pb-10">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div>
+           <div className="flex items-center space-x-2 mb-1">
+             <Archive className="w-5 h-5 text-blue-600" />
+             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inventory</span>
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Products</h2>
+        </div>
+        
+        <div className="flex items-center space-x-3">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+            <input 
+              type="text" 
+              placeholder="Search products..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all shadow-sm"
+            />
+          </div>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center px-6 py-2.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+          >
+            <Plus className="mr-2 w-4 h-4" />
             Add Product
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex items-center">
-          <div className="relative w-full max-w-md">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search products by Name or SKU..."
-              className="block w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-gray-50"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Product Name</th>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">SKU</th>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Category</th>
-                <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Price</th>
-                <th className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Stock</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredProducts.map((product) => (
-                <tr key={product.id} className="hover:bg-gray-50 transition-colors cursor-pointer group">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="h-8 w-8 flex-shrink-0 bg-blue-50 rounded text-blue-600 flex items-center justify-center">
-                        <Package className="h-4 w-4" />
-                      </div>
-                      <span className="ml-3 font-semibold text-gray-900 group-hover:text-blue-600">{product.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 flex items-center">
-                    <Hash className="w-3 h-3 mr-1 text-gray-400" /> {product.sku}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
-                      <Tag className="w-3 h-3 mr-1" /> {product.category}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900">
-                    ${product.price.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">
-                    {product.stock}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Registry Statistics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+         {[
+           { label: 'Active Catalog', value: '42 Units', icon: Package, color: 'blue' },
+           { label: 'Inventory Yield', value: '$842,000', icon: DollarSign, color: 'emerald' },
+           { label: 'Supply Velocity', value: 'Optimal', icon: Activity, color: 'indigo' }
+         ].map((stat, i) => (
+           <div key={i} className="glass-card p-6 flex items-center justify-between">
+              <div>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
+                 <h4 className="text-2xl font-black text-slate-900 mt-1">{stat.value}</h4>
+              </div>
+              <stat.icon className={`w-8 h-8 text-${stat.color}-500 opacity-20`} />
+           </div>
+         ))}
       </div>
 
+      {/* Main Registry Table */}
+      <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px]">
+        <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Strategic Asset Registry</h3>
+           <div className="flex items-center space-x-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              <span>Catalog Integrity:</span>
+              <span className="text-emerald-500">99.8% Synchronized</span>
+           </div>
+        </div>
+        <Table columns={columns} data={filteredProducts} />
+      </div>
+
+      {/* Integration Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-gray-900 flex items-center"><FileBox className="w-5 h-5 mr-2 text-blue-600" /> New Product</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-500 focus:outline-none">
-                <Plus className="h-5 w-5 transform rotate-45" />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setIsModalOpen(false)} />
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900">Product Integration</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Registry Synchronization Protocol</p>
+              </div>
+              <button onClick={() => setIsModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all">
+                <X className="h-5 w-5" />
               </button>
             </div>
             
-            <form onSubmit={handleAddProduct} className="p-6 space-y-4">
+            <form onSubmit={handleAddProduct} className="p-8 space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Product Name *</label>
-                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="CRM Annual License" />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Inventory Title *</label>
+                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="input-field" placeholder="e.g. Enterprise CRM License" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">SKU *</label>
-                  <input required type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="LIC-101" />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Registry SKU *</label>
+                  <input required type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="input-field" placeholder="LIC-742" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price ($) *</label>
-                  <input required type="number" min="0" step="0.01" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="99.00" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                  <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                    <option>Software</option><option>Hardware</option><option>Services</option><option>Subscription</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Stock (Leave blank for Unlimited)</label>
-                  <input type="number" min="0" value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Unlimited" />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Unit Price ($) *</label>
+                  <input required type="number" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="input-field" placeholder="0.00" />
                 </div>
               </div>
 
-              <div className="pt-4 mt-6 border-t border-gray-100 flex justify-end space-x-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none">Cancel</button>
-                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none shadow-sm">Save Product</button>
+              <div className="grid grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Classification</label>
+                  <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="input-field appearance-none bg-white">
+                    <option>Software</option>
+                    <option>Hardware</option>
+                    <option>Services</option>
+                    <option>Subscription</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Stock Protocol</label>
+                  <input type="number" value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} className="input-field" placeholder="Unlimited" />
+                </div>
+              </div>
+
+              <div className="pt-8 mt-4 border-t border-slate-50 flex justify-end space-x-3">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
+                <button type="submit" className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
+                   <Zap className="w-4 h-4 mr-2 fill-current" /> Finalize Integration
+                </button>
               </div>
             </form>
           </div>

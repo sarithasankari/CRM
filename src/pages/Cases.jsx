@@ -1,175 +1,222 @@
-import React, { useState } from 'react';
-import { LifeBuoy, Plus, Search, User, Clock, CheckCircle2, AlertCircle, X } from 'lucide-react';
-
-const initialCases = [
-  { id: 1, ticketNumber: 'CAS-101', subject: 'Cannot login to dashboard', contact: 'Sarah Miller', assignedTo: 'John Doe', status: 'Open', priority: 'High', date: 'Oct 25' },
-  { id: 2, ticketNumber: 'CAS-102', subject: 'Billing enquiry', contact: 'Jason Bourne', assignedTo: 'Finance Team', status: 'In Progress', priority: 'Medium', date: 'Oct 24' },
-  { id: 3, ticketNumber: 'CAS-103', subject: 'API documentation request', contact: 'Acme Corp', assignedTo: 'Tech Support', status: 'Closed', priority: 'Low', date: 'Oct 20' },
-];
+import React, { useState, useEffect } from 'react';
+import { 
+  LifeBuoy, Plus, Search, User, Clock, CheckCircle2, 
+  AlertCircle, X, Loader2, Filter, MoreHorizontal,
+  Calendar, ShieldAlert, MessageSquare, History
+} from 'lucide-react';
+import { casesApi, contactsApi } from '../services/api';
+import { useToast } from '../context/ToastContext';
 
 export default function Cases() {
-  const [cases, setCases] = useState(initialCases);
+  const [cases, setCases] = useState([]);
+  const [contacts, setContacts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ subject: '', contact: '', assignedTo: '', priority: 'Medium', description: '' });
+  const [isLoading, setIsLoading] = useState(true);
+  const { addToast } = useToast();
+  const [formData, setFormData] = useState({ subject: '', contact: '', assigned_to: '', priority: 'medium', description: '' });
 
-  const handleAddCase = (e) => {
-    e.preventDefault();
-    const newCase = { 
-      id: Date.now(), 
-      ticketNumber: `CAS-${104 + cases.length}`,
-      ...formData,
-      status: 'Open',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    };
-    setCases([newCase, ...cases]);
-    setIsModalOpen(false);
-    setFormData({ subject: '', contact: '', assignedTo: '', priority: 'Medium', description: '' });
-  };
-
-  const filteredCases = cases.filter(c => 
-    c.ticketNumber.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.contact.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getStatusBadge = (status) => {
-    switch(status) {
-      case 'Open': return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200"><AlertCircle className="w-3 h-3 mr-1" /> Open</span>;
-      case 'In Progress': return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200"><Clock className="w-3 h-3 mr-1" /> In Progress</span>;
-      case 'Closed': return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Closed</span>;
-      default: return null;
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const [casesRes, contactsRes] = await Promise.all([
+        casesApi.getAll(),
+        contactsApi.getAll() 
+      ]);
+      setCases(casesRes.results || []);
+      setContacts(contactsRes.results || []);
+    } catch (err) {
+      addToast('Synchronization failed', 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const getPriorityColor = (priority) => {
-    switch(priority) {
-      case 'High': return 'text-red-600 bg-red-50 border-red-200';
-      case 'Medium': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-      case 'Low': return 'text-blue-600 bg-blue-50 border-blue-200';
-      default: return 'text-gray-600 bg-gray-50 border-gray-200';
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleAddCase = async (e) => {
+    e.preventDefault();
+    try {
+      await casesApi.create({
+        ...formData,
+        status: 'new'
+      });
+      addToast('Support ticket established');
+      setIsModalOpen(false);
+      setFormData({ subject: '', contact: '', assigned_to: '', priority: 'medium', description: '' });
+      fetchData();
+    } catch (err) {
+      addToast('Establishment failed', 'error');
+    }
+  };
+
+  const filteredCases = cases.filter(c => 
+    (c.subject || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const getStatusBadge = (status) => {
+    switch(status?.toLowerCase()) {
+      case 'new': return <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-600 border border-rose-100">Pending Arrival</span>;
+      case 'in_progress': return <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-100">Under Analysis</span>;
+      case 'resolved':
+      case 'closed': return <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-100">Resolved</span>;
+      default: return <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-50 text-slate-600 border border-slate-100">{status}</span>;
     }
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-[1400px] mx-auto pb-10">
-      <div className="sm:flex sm:items-center sm:justify-between">
+    <div className="space-y-6 animate-fade-in max-w-[1400px] mx-auto pb-10">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Support Cases</h2>
-          <p className="mt-1 text-sm text-gray-500">Handle customer issues, track resolutions, and assign tickets.</p>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Cases</h2>
+          <div className="flex items-center mt-1 space-x-2">
+            <span className="text-sm font-medium text-slate-500">Support Hub</span>
+            <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+            <span className="text-sm font-bold text-blue-600">{filteredCases.length} Total Cases</span>
+          </div>
         </div>
-        <div className="mt-4 sm:mt-0 flex space-x-3">
-          <button onClick={() => setIsModalOpen(true)} className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors">
-            <Plus className="-ml-1 mr-2 h-4 w-4" />
-            Create Case
+        
+        <div className="flex items-center space-x-3">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+            <input 
+              type="text" 
+              placeholder="Search cases..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all"
+            />
+          </div>
+          
+          <button className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+            <Filter className="w-4 h-4" />
+          </button>
+          
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center px-5 py-2.5 bg-[#1a56d9] text-white rounded-[4px] font-medium text-[13px] hover:bg-blue-700 transition-all"
+          >
+            <Plus className="mr-2 w-4 h-4" />
+            Add Case
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex items-center">
-          <div className="relative w-full max-w-md">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search cases by subject, ID, or contact..."
-              className="block w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-gray-50"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      {/* Main Container */}
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden min-h-[500px] relative">
+        {isLoading ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-20">
+            <div className="w-8 h-8 border-2 border-blue-100 border-t-blue-600 rounded-full animate-spin" />
           </div>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Case Details</th>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Contact</th>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Assignment</th>
-                <th className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Date</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredCases.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50 transition-colors cursor-pointer group">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-blue-600 mb-1">{c.ticketNumber}</span>
-                      <span className="text-sm font-bold text-gray-900 group-hover:text-blue-700 transition-colors">{c.subject}</span>
-                      <div className="mt-1">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getPriorityColor(c.priority)}`}>
-                          {c.priority} Priority
-                        </span>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="h-6 w-6 rounded-full bg-gray-200 flex items-center justify-center mr-2">
-                        <User className="h-3 w-3 text-gray-600" />
-                      </div>
-                      <span className="text-sm text-gray-900">{c.contact}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">
-                    {c.assignedTo}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                    {getStatusBadge(c.status)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
-                    {c.date}
-                  </td>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Case Subject</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Contact Name</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Status</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Priority</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Created Time</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredCases.map((c) => (
+                  <tr key={c.id} className="hover:bg-gray-50 transition-colors cursor-pointer group">
+                    <td className="px-6 py-4">
+                      <div className="text-[13px] font-medium text-blue-600 hover:underline">{c.subject}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-[13px] text-gray-800">{contacts.find(con => con.id === c.contact)?.name || `-`}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-[13px] text-gray-800 capitalize">{c.status || 'New'}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-[13px] text-gray-800 capitalize">{c.priority || 'Medium'}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-[13px] text-gray-800">{new Date(c.created_at).toLocaleDateString()}</span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                       <button className="text-gray-400 hover:text-gray-600 p-1">
+                          <MoreHorizontal className="w-4 h-4" />
+                       </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            
+            {filteredCases.length === 0 && (
+               <div className="p-20 flex flex-col items-center justify-center text-center border-t border-gray-100">
+                  <div className="text-[14px] text-gray-500">No matching cases found.</div>
+               </div>
+            )}
+          </div>
+        )}
       </div>
 
+      {/* Establishment Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-gray-900 flex items-center"><LifeBuoy className="w-5 h-5 mr-2 text-blue-600" /> Create New Case</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-500 focus:outline-none">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setIsModalOpen(false)} />
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl overflow-hidden relative z-10 animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+              <h3 className="text-[16px] font-semibold text-gray-800">Create Case</h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <X className="h-5 w-5" />
               </button>
             </div>
             
-            <form onSubmit={handleAddCase} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Subject / Title *</label>
-                <input required type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Brief issue description" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name *</label>
-                  <input required type="text" value={formData.contact} onChange={e => setFormData({...formData, contact: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Client Name" />
+            <form onSubmit={handleAddCase} className="p-6">
+              <div className="space-y-6">
+                <div className="flex items-center">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Case Subject *</div>
+                  <div className="flex-1">
+                    <input required type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} className="w-full px-3 py-1.5 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Assign To</label>
-                  <input type="text" value={formData.assignedTo} onChange={e => setFormData({...formData, assignedTo: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Agent Name or Team" />
+                
+                <div className="flex items-center">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Contact Name *</div>
+                  <div className="flex-1">
+                    <select required value={formData.contact} onChange={e => setFormData({...formData, contact: e.target.value})} className="w-full px-3 py-1.5 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white">
+                      <option value="">None</option>
+                      {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-                <select value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option>High</option><option>Medium</option><option>Low</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Detailed Description</label>
-                <textarea rows="3" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Describe the problem..."></textarea>
+                
+                <div className="flex items-center">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Priority</div>
+                  <div className="flex-1">
+                    <select value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value})} className="w-full px-3 py-1.5 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white">
+                      <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="urgent">Urgent</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-start">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4 pt-2">Description</div>
+                  <div className="flex-1">
+                    <textarea rows="4" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-3 py-2 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"></textarea>
+                  </div>
+                </div>
               </div>
 
-              <div className="pt-4 mt-6 border-t border-gray-100 flex justify-end space-x-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none">Cancel</button>
-                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none shadow-sm">Submit Case</button>
+              <div className="pt-6 mt-6 border-t border-gray-100 flex justify-end space-x-3">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-[4px] text-[13px] hover:bg-gray-50 transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" className="px-4 py-1.5 bg-[#1a56d9] font-medium text-white rounded-[4px] text-[13px] hover:bg-blue-700 transition-colors flex items-center">
+                  Save
+                </button>
               </div>
             </form>
           </div>

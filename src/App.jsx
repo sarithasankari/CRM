@@ -14,6 +14,7 @@ import Workqueue from './pages/Workqueue';
 import Accounts from './pages/Accounts';
 import Tasks from './pages/Tasks';
 import Calls from './pages/Calls';
+import Workflows from './pages/Workflows';
 import Meetings from './pages/Meetings';
 import Products from './pages/Products';
 import Invoices from './pages/Invoices';
@@ -24,6 +25,7 @@ import ApiConsole from './pages/ApiConsole';
 import Services from './pages/Services';
 import Projects from './pages/Projects';
 import Feedback from './pages/Feedback';
+import Login from './pages/Login';
 
 function App() {
   return (
@@ -46,6 +48,7 @@ function App() {
           <Route path="tasks" element={<Tasks />} />
           <Route path="calls" element={<Calls />} />
           <Route path="meetings" element={<Meetings />} />
+          <Route path="workflows" element={<Workflows />} />
 
           {/* Phase 2 Modules */}
           <Route path="products" element={<Products />} />
@@ -60,6 +63,7 @@ function App() {
           <Route path="projects" element={<Projects />} />
           <Route path="feedback" element={<Feedback />} />
         </Route>
+        <Route path="/login" element={<Login />} />
       </Routes>
     </BrowserRouter>
   );

@@ -1,25 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, Clock, CalendarDays, AlertCircle, 
-  PhoneCall, Mail, CheckSquare, ArrowDown, ArrowUp, Minus
+  PhoneCall, Mail, CheckSquare, ArrowDown, ArrowUp, 
+  Minus, Loader2, ListTodo, Search, Filter,
+  Zap, MoreHorizontal, ChevronRight, LayoutGrid
 } from 'lucide-react';
-
-const initialWorkqueue = [
-  { id: 1, type: 'Lead', title: 'Follow up call with Sarah Miller', relatedTo: 'Global Tech Inc.', priority: 'High', dueDate: 'Today', status: 'Today' },
-  { id: 2, type: 'Task', title: 'Send contract draft', relatedTo: 'Acme Corp', priority: 'High', dueDate: 'Oct 24', status: 'Overdue' },
-  { id: 3, type: 'Deal', title: 'Review proposal for Cloud Migration', relatedTo: 'TechNova', priority: 'Medium', dueDate: 'Today', status: 'Today' },
-  { id: 4, type: 'Task', title: 'Prepare presentation', relatedTo: 'Globex', priority: 'Low', dueDate: 'Oct 28', status: 'Upcoming' },
-  { id: 5, type: 'Lead', title: 'Initial contact with Jason Bourne', relatedTo: 'Security First Co.', priority: 'Medium', dueDate: 'Tomorrow', status: 'Upcoming' },
-];
+import { tasksApi } from '../services/api';
+import { useToast } from '../context/ToastContext';
 
 export default function Workqueue() {
   const [filter, setFilter] = useState('All');
-  const [tasks, setTasks] = useState(initialWorkqueue);
+  const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { addToast } = useToast();
+
+  const fetchTasks = async () => {
+    try {
+      setIsLoading(true);
+      const data = await tasksApi.getAll();
+      
+      const formattedTasks = (data.results || []).map(t => {
+        const isOverdue = new Date(t.due_date) < new Date() && t.status !== 'completed';
+        const isToday = new Date(t.due_date).toDateString() === new Date().toDateString();
+        return {
+          id: t.id,
+          type: t.priority === 'High' ? 'Critical' : 'Operational',
+          title: t.title,
+          relatedTo: t.description || 'System Protocol',
+          priority: t.priority || 'Medium',
+          dueDate: t.due_date ? new Date(t.due_date).toLocaleDateString() : 'No Registry',
+          status: isOverdue ? 'Overdue' : isToday ? 'Today' : 'Upcoming',
+          completed: t.status === 'completed'
+        };
+      });
+      setTasks(formattedTasks.filter(t => !t.completed));
+    } catch (err) {
+      addToast('Protocol Sync Failed', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTasks();
+  }, []);
 
   const getPriorityIcon = (priority) => {
     switch(priority) {
-      case 'High': return <ArrowUp className="w-4 h-4 text-red-500" />;
-      case 'Medium': return <Minus className="w-4 h-4 text-yellow-500" />;
+      case 'High': return <ArrowUp className="w-4 h-4 text-rose-500" />;
+      case 'Medium': return <Minus className="w-4 h-4 text-amber-500" />;
       case 'Low': return <ArrowDown className="w-4 h-4 text-blue-500" />;
       default: return null;
     }
@@ -27,112 +56,159 @@ export default function Workqueue() {
 
   const getStatusBadge = (status) => {
     switch(status) {
-      case 'Overdue': return 'bg-red-100 text-red-700 border-red-200';
-      case 'Today': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-      case 'Upcoming': return 'bg-blue-100 text-blue-700 border-blue-200';
-      default: return 'bg-gray-100 text-gray-700';
+      case 'Overdue': return 'bg-rose-50 text-rose-600 border-rose-100';
+      case 'Today': return 'bg-amber-50 text-amber-600 border-amber-100';
+      case 'Upcoming': return 'bg-blue-50 text-blue-600 border-blue-100';
+      default: return 'bg-slate-50 text-slate-600 border-slate-100';
     }
   };
 
   const getTypeBadge = (type) => {
     switch(type) {
-      case 'Lead': return 'bg-purple-100 text-purple-700';
-      case 'Deal': return 'bg-green-100 text-green-700';
-      case 'Task': return 'bg-indigo-100 text-indigo-700';
-      default: return 'bg-gray-100 text-gray-700';
+      case 'Critical': return 'bg-slate-900 text-white';
+      case 'Operational': return 'bg-slate-100 text-slate-900';
+      default: return 'bg-slate-50 text-slate-600';
     }
   };
 
   const filteredTasks = tasks.filter(task => filter === 'All' || task.status === filter);
 
-  const markComplete = (id) => {
-    setTasks(tasks.filter(t => t.id !== id));
+  const markComplete = async (id) => {
+    try {
+      await tasksApi.patch(id, { status: 'completed' });
+      addToast('Registry Entry Finalized');
+      fetchTasks();
+    } catch (err) {
+      addToast('Finalization Failed', 'error');
+    }
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-[1200px] mx-auto pb-10">
-      <div className="sm:flex sm:items-center sm:justify-between">
+    <div className="space-y-8 animate-fade-in max-w-[1400px] mx-auto pb-10">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">My Workqueue</h2>
-          <p className="mt-1 text-sm text-gray-500">Manage your assigned leads, tasks, and deals.</p>
+           <div className="flex items-center space-x-2 mb-1">
+             <ListTodo className="w-5 h-5 text-blue-600" />
+             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Activities</span>
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Workqueue</h2>
+        </div>
+        
+        <div className="flex items-center space-x-3">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+            <input 
+              type="text" 
+              placeholder="Search active protocols..."
+              className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all shadow-sm"
+            />
+          </div>
+          <button className="p-2.5 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+            <Filter className="w-4 h-4" />
+          </button>
+          <button className="inline-flex items-center px-6 py-2.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all">
+            <Zap className="mr-2 w-4 h-4 fill-current" />
+            Integrate Protocol
+          </button>
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex space-x-2 border-b border-gray-200 pb-px">
-        {['All', 'Overdue', 'Today', 'Upcoming'].map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-              filter === f 
-                ? 'bg-white border-t border-l border-r border-gray-200 text-blue-600 shadow-[0_-2px_0_0_#2563eb]' 
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border-t border-l border-r border-transparent'
-            }`}
-          >
-            {f}
-          </button>
-        ))}
+      {/* Filter Stats Bar */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+         {['All', 'Overdue', 'Today', 'Upcoming'].map((f) => (
+           <button
+             key={f}
+             onClick={() => setFilter(f)}
+             className={`glass-card p-6 flex flex-col items-start transition-all ${
+               filter === f ? 'bg-slate-900 border-slate-900 shadow-xl shadow-slate-900/20' : 'hover:bg-slate-50'
+             }`}
+           >
+              <span className={`text-[10px] font-black uppercase tracking-widest ${filter === f ? 'text-slate-400' : 'text-slate-500'}`}>
+                 {f} Logic
+              </span>
+              <div className="flex items-center justify-between w-full mt-1">
+                 <h4 className={`text-2xl font-black ${filter === f ? 'text-white' : 'text-slate-900'}`}>
+                    {f === 'All' ? tasks.length : tasks.filter(t => t.status === f).length}
+                 </h4>
+                 {filter === f && <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
+              </div>
+           </button>
+         ))}
       </div>
 
-      {/* Task List */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {filteredTasks.length === 0 ? (
-          <div className="p-12 text-center">
-            <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 opacity-50 mb-3" />
-            <h3 className="text-lg font-medium text-gray-900">You're all caught up!</h3>
-            <p className="text-gray-500">No items match this filter.</p>
+      {/* Registry Container */}
+      <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px]">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-[500px]">
+             <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
+             <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Synchronizing Workqueue Registry...</p>
+          </div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-[500px] text-center p-8">
+            <div className="w-20 h-20 bg-emerald-50 rounded-[32px] flex items-center justify-center text-emerald-500 mb-6 shadow-inner">
+               <CheckCircle2 className="w-10 h-10" />
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Protocol Zero Achieved</h3>
+            <p className="text-slate-400 text-sm max-w-sm font-medium">All active registry entries have been successfully processed or no matches exist for the current filter.</p>
           </div>
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <div className="divide-y divide-slate-50">
             {filteredTasks.map((task) => (
-              <li key={task.id} className="p-4 hover:bg-gray-50 transition-colors flex items-center justify-between group">
-                <div className="flex items-center space-x-4">
-                  {/* Checkbox to mark complete */}
+              <div key={task.id} className="p-6 md:p-8 hover:bg-slate-50/50 transition-all group flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="flex items-center space-x-6">
+                  {/* Executive Action Trigger */}
                   <button 
                     onClick={() => markComplete(task.id)}
-                    className="flex-shrink-0 text-gray-300 hover:text-green-500 transition-colors focus:outline-none"
-                    title="Mark Complete"
+                    className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300 hover:bg-emerald-50 hover:text-emerald-500 transition-all border border-slate-100 group-hover:scale-105"
                   >
                     <CheckSquare className="w-6 h-6" />
                   </button>
 
-                  <div className="flex flex-col">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${getTypeBadge(task.type)}`}>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getTypeBadge(task.type)}`}>
                         {task.type}
                       </span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(task.status)}`}>
+                      <span className={`px-2.5 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest ${getStatusBadge(task.status)}`}>
                         {task.status}
                       </span>
-                      <div className="flex items-center text-xs text-gray-500 font-medium bg-gray-100 px-2 py-0.5 rounded">
+                      <div className="flex items-center text-[9px] font-black text-slate-500 uppercase tracking-widest bg-slate-100 px-2.5 py-1 rounded-full">
                         {getPriorityIcon(task.priority)}
-                        <span className="ml-1">{task.priority}</span>
+                        <span className="ml-1.5">{task.priority} Priority</span>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-gray-900">{task.title}</span>
-                    <div className="text-xs text-gray-500 mt-0.5 flex items-center space-x-3">
-                      <span>Related to: <span className="font-semibold text-gray-700">{task.relatedTo}</span></span>
-                      <span className="flex items-center text-gray-400">
-                        <CalendarDays className="w-3 h-3 mr-1" />
-                        {task.dueDate}
+                    <h4 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors">{task.title}</h4>
+                    <div className="flex items-center space-x-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      <span className="flex items-center">
+                         <LayoutGrid className="w-3.5 h-3.5 mr-1.5" />
+                         Registry: <span className="text-slate-600 ml-1.5">{task.relatedTo}</span>
+                      </span>
+                      <span className="flex items-center border-l border-slate-200 pl-4">
+                        <CalendarDays className="w-3.5 h-3.5 mr-1.5" />
+                        Deadline: <span className="text-slate-600 ml-1.5">{task.dueDate}</span>
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Quick Actions (Appear on hover) */}
-                <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Call">
+                {/* Operator Tools */}
+                <div className="flex items-center space-x-3 opacity-0 group-hover:opacity-100 transition-opacity translate-x-4 group-hover:translate-x-0 transition-transform">
+                  <button className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm">
                     <PhoneCall className="w-4 h-4" />
                   </button>
-                  <button className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Email">
+                  <button className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm">
                     <Mail className="w-4 h-4" />
                   </button>
+                  <div className="w-px h-6 bg-slate-200 mx-1" />
+                  <button className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-slate-900 hover:border-slate-300 transition-all shadow-sm">
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </div>

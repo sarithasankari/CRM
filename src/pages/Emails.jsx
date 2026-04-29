@@ -1,110 +1,172 @@
 import React, { useState } from 'react';
 import Table from '../components/Table';
 import { emailsData } from '../data/dummy';
-import { Mail, Edit3 } from 'lucide-react';
+import { 
+  Mail, Edit3, Send, ChevronRight, Search, 
+  Filter, MoreHorizontal, Inbox, ExternalLink, 
+  Trash2, X, Zap, ArrowUpRight
+} from 'lucide-react';
 
 export default function Emails() {
   const [isComposing, setIsComposing] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const columns = [
-    { header: 'To', accessor: 'to' },
     { 
-      header: 'Subject', 
-      accessor: 'subject',
-      render: (row) => <span className="font-medium text-gray-900">{row.subject}</span>
+      header: 'Recipient Registry', 
+      accessor: 'to',
+      render: (row) => (
+        <div className="flex items-center">
+          <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 mr-4 group-hover:scale-110 transition-transform">
+             <Mail className="w-5 h-5" />
+          </div>
+          <div className="flex flex-col">
+             <span className="text-sm font-black text-slate-900 group-hover:text-blue-600 transition-colors">{row.to}</span>
+             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Primary Contact</span>
+          </div>
+        </div>
+      )
     },
-    { header: 'Date', accessor: 'date' },
     { 
-      header: 'Status', 
+      header: 'Communication Subject', 
+      accessor: 'subject',
+      render: (row) => (
+        <div className="flex flex-col">
+          <span className="text-sm font-bold text-slate-900 line-clamp-1">{row.subject}</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Template: Follow-Up Protocol</span>
+        </div>
+      )
+    },
+    { 
+      header: 'Registry Timestamp', 
+      accessor: 'date',
+      render: (row) => (
+        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">{row.date}</span>
+      )
+    },
+    { 
+      header: 'Velocity State', 
       accessor: 'status',
       render: (row) => {
-        const getStatusStyle = (status) => {
-          switch(status) {
-            case 'Sent': return 'text-gray-600 bg-gray-100';
-            case 'Opened': return 'text-blue-600 bg-blue-100';
-            case 'Clicked': return 'text-green-600 bg-green-100';
-            default: return 'text-gray-600 bg-gray-100';
-          }
-        };
+        const status = row.status?.toLowerCase();
+        let colors = 'bg-slate-50 text-slate-400 border-slate-100';
+        if (status === 'opened') colors = 'bg-blue-50 text-blue-600 border-blue-100';
+        if (status === 'clicked') colors = 'bg-emerald-50 text-emerald-600 border-emerald-100';
+
         return (
-          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusStyle(row.status)}`}>
-            {row.status}
+          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center w-fit ${colors}`}>
+            <Zap className={`w-3 h-3 mr-1.5 ${status === 'clicked' ? 'fill-emerald-500' : ''}`} /> {row.status}
           </span>
         );
       }
     },
+    {
+      header: '',
+      accessor: 'actions',
+      render: () => (
+        <div className="flex justify-end space-x-2">
+          <button className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
+            <ExternalLink className="w-4 h-4" />
+          </button>
+          <button className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      )
+    }
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 relative">
-      <div className="sm:flex sm:items-center sm:justify-between">
+    <div className="space-y-8 animate-fade-in max-w-[1400px] mx-auto pb-10">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Email History</h2>
-          <p className="mt-1 text-sm text-gray-500">Track and manage your sent emails and templates.</p>
+           <div className="flex items-center space-x-2 mb-1">
+             <Inbox className="w-5 h-5 text-blue-600" />
+             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Communication</span>
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Emails</h2>
         </div>
-        <div className="mt-4 sm:mt-0">
+        
+        <div className="flex items-center space-x-3">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+            <input 
+              type="text" 
+              placeholder="Search emails..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all shadow-sm"
+            />
+          </div>
           <button 
             onClick={() => setIsComposing(true)}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 transition-colors"
+            className="inline-flex items-center px-6 py-2.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
           >
-            <Edit3 className="-ml-1 mr-2 h-4 w-4" />
-            Compose
+            <Edit3 className="mr-2 w-4 h-4" />
+            Compose Email
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      {/* Main Table Content */}
+      <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px]">
+        <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Transmission Registry</h3>
+           <div className="flex items-center space-x-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              <span>Delivery Success:</span>
+              <span className="text-emerald-500">99.9% Optimal</span>
+           </div>
+        </div>
         <Table columns={columns} data={emailsData} />
       </div>
 
+      {/* Broadcast Composer Modal */}
       {isComposing && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 transition-opacity" aria-hidden="true" onClick={() => setIsComposing(false)}>
-              <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setIsComposing(false)} />
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900">Broadcast Protocol</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">High-Velocity Communication Engine</p>
+              </div>
+              <button onClick={() => setIsComposing(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all border border-slate-100">
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
-              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <div className="sm:flex sm:items-start">
-                  <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-primary-100 sm:mx-0 sm:h-10 sm:w-10">
-                    <Mail className="h-6 w-6 text-primary-600" aria-hidden="true" />
-                  </div>
-                  <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
-                    <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
-                      Compose Email
-                    </h3>
-                    <div className="mt-4 space-y-4">
-                      <div>
-                        <label htmlFor="to" className="block text-sm font-medium text-gray-700">To</label>
-                        <input type="text" name="to" id="to" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm" placeholder="contact@example.com" />
-                      </div>
-                      <div>
-                        <label htmlFor="template" className="block text-sm font-medium text-gray-700">Template</label>
-                        <select id="template" name="template" className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md">
-                          <option>None</option>
-                          <option>Introductory Offer</option>
-                          <option>Follow Up</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="subject" className="block text-sm font-medium text-gray-700">Subject</label>
-                        <input type="text" name="subject" id="subject" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm" />
-                      </div>
-                      <div>
-                        <label htmlFor="body" className="block text-sm font-medium text-gray-700">Message</label>
-                        <textarea id="body" name="body" rows="6" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"></textarea>
-                      </div>
-                    </div>
-                  </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Target Registry Entry</label>
+                  <input type="text" className="input-field" placeholder="contact@enterprise.com" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Template</label>
+                  <select className="input-field appearance-none bg-white">
+                    <option>Strategic Introduction</option>
+                    <option>Follow-up Protocol</option>
+                    <option>Yield Report Submission</option>
+                  </select>
                 </div>
               </div>
-              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                <button type="button" onClick={() => setIsComposing(false)} className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 sm:ml-3 sm:w-auto sm:text-sm">
-                  Send
-                </button>
-                <button type="button" onClick={() => setIsComposing(false)} className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
-                  Cancel
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Subject</label>
+                <input type="text" className="input-field" placeholder="Strategic Partnership Proposal" />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Payload</label>
+                <textarea rows="6" className="input-field resize-none py-4" placeholder="Initialize communication protocol..."></textarea>
+              </div>
+
+              <div className="pt-8 mt-4 border-t border-slate-50 flex justify-end space-x-3">
+                <button type="button" onClick={() => setIsComposing(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard Draft</button>
+                <button type="button" onClick={() => setIsComposing(false)} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
+                   <Send className="w-4 h-4 mr-2" /> Initialize Broadcast
                 </button>
               </div>
             </div>

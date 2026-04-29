@@ -1,105 +1,181 @@
-import React, { useState } from 'react';
-import { FileText, Plus, Search, Download, CreditCard, Clock, AlertCircle } from 'lucide-react';
-
-const initialInvoices = [
-  { id: 1, invoiceNumber: 'INV-2023-001', client: 'Acme Corp', date: 'Oct 20, 2023', dueDate: 'Nov 04, 2023', amount: 5000, status: 'Paid' },
-  { id: 2, invoiceNumber: 'INV-2023-002', client: 'Global Tech Inc.', date: 'Oct 15, 2023', dueDate: 'Oct 30, 2023', amount: 12500, status: 'Unpaid' },
-  { id: 3, invoiceNumber: 'INV-2023-003', client: 'Security First Co.', date: 'Oct 01, 2023', dueDate: 'Oct 15, 2023', amount: 8000, status: 'Overdue' },
-];
+import React, { useState, useEffect } from 'react';
+import { 
+  FileText, Plus, Search, Download, CreditCard, 
+  Clock, AlertCircle, Loader2, Filter, ChevronRight,
+  DollarSign, ArrowUpRight, ArrowDownRight, Printer
+} from 'lucide-react';
+import { invoicesApi } from '../services/api';
+import { useToast } from '../context/ToastContext';
+import Table from '../components/Table';
 
 export default function Invoices() {
-  const [invoices, setInvoices] = useState(initialInvoices);
+  const [invoices, setInvoices] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const { addToast } = useToast();
 
-  const filteredInvoices = invoices.filter(inv => 
-    inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    inv.client.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getStatusBadge = (status) => {
-    switch(status) {
-      case 'Paid': return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200"><CreditCard className="w-3 h-3 mr-1" /> Paid</span>;
-      case 'Unpaid': return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200"><Clock className="w-3 h-3 mr-1" /> Unpaid</span>;
-      case 'Overdue': return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200"><AlertCircle className="w-3 h-3 mr-1" /> Overdue</span>;
-      default: return null;
+  const fetchInvoices = async () => {
+    try {
+      setIsLoading(true);
+      const data = await invoicesApi.getAll();
+      setInvoices(data.results || []);
+    } catch (err) {
+      addToast('Fiscal sync failed', 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-[1400px] mx-auto pb-10">
-      <div className="sm:flex sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Invoices</h2>
-          <p className="mt-1 text-sm text-gray-500">Track and manage client billing and payments.</p>
+  useEffect(() => {
+    fetchInvoices();
+  }, []);
+
+  const filteredInvoices = invoices.filter(inv => 
+    (inv.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const columns = [
+    { 
+      header: 'Fiscal Registry', 
+      accessor: 'invoice_number',
+      render: (row) => (
+        <div className="flex items-center">
+          <div className="h-10 w-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 mr-4 group-hover:scale-110 transition-transform">
+             <FileText className="w-5 h-5" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-black text-blue-600">#{row.invoice_number}</span>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Reference: Q-{row.quote || '742'}</span>
+          </div>
         </div>
-        <div className="mt-4 sm:mt-0 flex space-x-3">
-          <button className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors">
-            <Plus className="-ml-1 mr-2 h-4 w-4" />
+      )
+    },
+    { 
+      header: 'Timeline Protocol', 
+      accessor: 'created_at',
+      render: (row) => (
+        <div className="flex flex-col">
+          <span className="text-sm font-bold text-slate-900">Issued: {new Date(row.created_at).toLocaleDateString()}</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Due: {row.due_date || 'N/A'}</span>
+        </div>
+      )
+    },
+    { 
+      header: 'Ledger Status', 
+      accessor: 'status',
+      render: (row) => {
+        const status = row.status?.toLowerCase();
+        let colors = 'bg-slate-50 text-slate-400 border-slate-100';
+        let Icon = Clock;
+
+        if (status === 'paid') {
+           colors = 'bg-emerald-50 text-emerald-600 border-emerald-100';
+           Icon = CreditCard;
+        } else if (status === 'overdue') {
+           colors = 'bg-rose-50 text-rose-600 border-rose-100';
+           Icon = AlertCircle;
+        } else if (status === 'sent' || status === 'unpaid') {
+           colors = 'bg-blue-50 text-blue-600 border-blue-100';
+           Icon = ArrowUpRight;
+        }
+
+        return (
+          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center w-fit ${colors}`}>
+            <Icon className="w-3 h-3 mr-1.5" /> {row.status}
+          </span>
+        );
+      }
+    },
+    { 
+      header: 'Net Yield', 
+      accessor: 'amount',
+      render: (row) => (
+        <div className="text-right">
+          <div className="text-sm font-black text-slate-900">${Number(row.amount).toLocaleString()}</div>
+          <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Tax Included</div>
+        </div>
+      )
+    },
+    {
+      header: '',
+      accessor: 'actions',
+      render: () => (
+        <div className="flex justify-end space-x-2">
+          <button className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
+            <Download className="w-4 h-4" />
+          </button>
+          <button className="p-2 text-slate-300 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition-all">
+            <Printer className="w-4 h-4" />
+          </button>
+        </div>
+      )
+    }
+  ];
+
+  return (
+    <div className="space-y-8 animate-fade-in max-w-[1400px] mx-auto pb-10">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div>
+           <div className="flex items-center space-x-2 mb-1">
+             <DollarSign className="w-5 h-5 text-blue-600" />
+             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inventory</span>
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Invoices</h2>
+        </div>
+        
+        <div className="flex items-center space-x-3">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+            <input 
+              type="text" 
+              placeholder="Search fiscal records..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all shadow-sm"
+            />
+          </div>
+          <button className="p-2.5 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+            <Filter className="w-4 h-4" />
+          </button>
+          <button className="inline-flex items-center px-6 py-2.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all">
+            <Plus className="mr-2 w-4 h-4" />
             Generate Invoice
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex items-center">
-          <div className="relative w-full max-w-md">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search by Invoice # or Client..."
-              className="block w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-gray-50"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      {/* Fiscal KPI Row */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+         {[
+           { label: 'Total Outstanding', value: '$84,200', trend: '+12%', color: 'blue' },
+           { label: 'Fiscal Yield', value: '$242,000', trend: '+24%', color: 'emerald' },
+           { label: 'Average Aging', value: '14 Days', trend: '-2 Days', color: 'amber' },
+           { label: 'Overdue Protocol', value: '$12,400', trend: '+4%', color: 'rose' }
+         ].map((kpi, i) => (
+           <div key={i} className="glass-card p-6">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{kpi.label}</p>
+              <div className="flex items-end justify-between mt-1">
+                 <h4 className="text-2xl font-black text-slate-900">{kpi.value}</h4>
+                 <span className={`text-[10px] font-black uppercase tracking-widest ${kpi.trend.includes('-') ? 'text-emerald-500' : 'text-rose-500'}`}>
+                    {kpi.trend}
+                 </span>
+              </div>
+           </div>
+         ))}
+      </div>
+
+      {/* Main Registry Container */}
+      <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px]">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-[500px]">
+             <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
+             <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Compiling Fiscal Records...</p>
           </div>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Invoice #</th>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Client</th>
-                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Dates</th>
-                <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Amount</th>
-                <th className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredInvoices.map((invoice) => (
-                <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <FileText className="w-4 h-4 text-gray-400 mr-2" />
-                      <span className="font-bold text-blue-600">{invoice.invoiceNumber}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
-                    {invoice.client}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">Issued: {invoice.date}</div>
-                    <div className="text-xs text-gray-500">Due: {invoice.dueDate}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-gray-900">
-                    ${invoice.amount.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                    {getStatusBadge(invoice.status)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button className="text-blue-600 hover:text-blue-900 flex items-center justify-end w-full">
-                      <Download className="w-4 h-4 mr-1" /> PDF
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        ) : (
+          <Table columns={columns} data={filteredInvoices} />
+        )}
       </div>
     </div>
   );
