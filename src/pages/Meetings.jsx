@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, Users, Calendar, Clock, Video, FileText, X, 
   MapPin, Phone, MoreHorizontal, Search, Filter, 
-  ChevronRight, CalendarDays, ExternalLink
+  ChevronRight, CalendarDays, ExternalLink, Loader2
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
@@ -11,23 +11,86 @@ const initialMeetings = [
   { id: 2, type: 'In Person', title: 'Q3 Strategy Sync', date: 'Oct 26, 2023', time: '2:00 PM - 3:30 PM', participants: ['Jane Smith', 'Exec Team'], notes: 'Quarterly review of sales pipeline velocity and churn rates.' },
 ];
 
+import { activitiesApi } from '../services/api';
+
 export default function Meetings() {
-  const [meetings, setMeetings] = useState(initialMeetings);
+  const [meetings, setMeetings] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { addToast } = useToast();
   const [formData, setFormData] = useState({ title: '', date: '', time: '', participants: '', type: 'Video Call', notes: '' });
 
-  const handleAddMeeting = (e) => {
+  useEffect(() => {
+    fetchMeetings();
+  }, []);
+
+  const fetchMeetings = async () => {
+    setIsLoading(true);
+    try {
+      // Fetch only activities of type 'meeting'
+      const data = await activitiesApi.getAll({ type: 'meeting' });
+      setMeetings(data.results || data);
+    } catch (err) {
+      console.error('Failed to load meetings', err);
+      addToast('Failed to load meetings', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAddMeeting = async (e) => {
     e.preventDefault();
-    const newMeeting = { 
-      id: Date.now(), 
-      ...formData,
-      participants: formData.participants.split(',').map(p => p.trim())
-    };
-    setMeetings([newMeeting, ...meetings]);
-    addToast("Meeting scheduled successfully");
-    setIsModalOpen(false);
-    setFormData({ title: '', date: '', time: '', participants: '', type: 'Video Call', notes: '' });
+    setIsSubmitting(true);
+    try {
+      // Parse date and time into scheduled_at
+      let scheduled_at = null;
+      let end_time = null;
+      if (formData.date && formData.time) {
+        // Simple conversion, assuming time is something like "10:00" in 24hr format if they use the HTML time input,
+        // but the current UI uses a text input "e.g. 10:00 AM". Let's attempt to parse it or just save it.
+        // For now, we'll try to build a Date object.
+        try {
+          const timeString = formData.time.toLowerCase().replace(/ /g, '');
+          let hours = parseInt(timeString);
+          if (timeString.includes('pm') && hours < 12) hours += 12;
+          if (timeString.includes('am') && hours === 12) hours = 0;
+          
+          let minutes = 0;
+          if (timeString.includes(':')) {
+            minutes = parseInt(timeString.split(':')[1]);
+          }
+          
+          const dt = new Date(formData.date);
+          dt.setHours(hours, minutes, 0, 0);
+          scheduled_at = dt.toISOString();
+          
+          const endDt = new Date(dt.getTime() + 60 * 60 * 1000); // +1 hour
+          end_time = endDt.toISOString();
+        } catch (e) {
+          console.error("Time parsing error", e);
+        }
+      }
+
+      const payload = {
+        type: 'meeting',
+        title: formData.title,
+        notes: formData.notes + (formData.participants ? `\n\nParticipants: ${formData.participants}` : ''),
+        scheduled_at: scheduled_at,
+        end_time: end_time
+      };
+
+      await activitiesApi.create(payload);
+      addToast("Meeting scheduled successfully");
+      setIsModalOpen(false);
+      setFormData({ title: '', date: '', time: '', participants: '', type: 'Video Call', notes: '' });
+      fetchMeetings();
+    } catch (err) {
+      console.error('Failed to create meeting', err);
+      addToast("Failed to schedule meeting", 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -59,21 +122,21 @@ export default function Meetings() {
 
       {/* Main Grid Container */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {meetings.map(meeting => (
+        {isLoading ? (
+          <div className="col-span-full py-20 flex justify-center text-slate-400">Loading meetings...</div>
+        ) : meetings.map(meeting => (
           <div key={meeting.id} className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 p-8 hover:shadow-2xl hover:shadow-slate-200/60 transition-all group relative overflow-hidden">
             <div className="flex justify-between items-start mb-6">
               <div className="flex-1 pr-10">
                  <div className="flex items-center space-x-3 mb-2">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                      meeting.type === 'Video Call' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-purple-50 text-purple-600 border border-purple-100'
-                    }`}>
-                      {meeting.type}
+                    <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-50 text-blue-600 border border-blue-100`}>
+                      Video Call
                     </span>
                  </div>
-                 <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors leading-tight">{meeting.title}</h3>
+                 <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors leading-tight">{meeting.title || 'Untitled Meeting'}</h3>
               </div>
-              <div className={`p-4 rounded-2xl ${meeting.type === 'Video Call' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'} shadow-sm group-hover:scale-110 transition-transform`}>
-                {meeting.type === 'Video Call' ? <Video className="w-6 h-6" /> : <Users className="w-6 h-6" />}
+              <div className={`p-4 rounded-2xl bg-blue-50 text-blue-600 shadow-sm group-hover:scale-110 transition-transform`}>
+                <Video className="w-6 h-6" />
               </div>
             </div>
             
@@ -81,34 +144,27 @@ export default function Meetings() {
               <div className="flex items-center space-x-6 text-[12px] font-bold text-slate-500">
                 <div className="flex items-center">
                   <Calendar className="w-4 h-4 mr-2 text-slate-300" />
-                  {meeting.date}
+                  {meeting.scheduled_at ? new Date(meeting.scheduled_at).toLocaleDateString() : 'No Date'}
                 </div>
                 <div className="flex items-center">
                   <Clock className="w-4 h-4 mr-2 text-slate-300" />
-                  {meeting.time}
+                  {meeting.scheduled_at ? new Date(meeting.scheduled_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No Time'}
                 </div>
               </div>
 
               <div>
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Protocol Participants</h4>
-                <div className="flex -space-x-3">
-                  {meeting.participants.map((p, i) => (
-                    <div key={p} className="w-10 h-10 rounded-xl bg-slate-100 border-4 border-white flex items-center justify-center text-[10px] font-black text-slate-600 shadow-sm" title={p}>
-                      {p.split(' ').map(n => n[0]).join('')}
-                    </div>
-                  ))}
-                  <button className="w-10 h-10 rounded-xl bg-slate-50 border-4 border-white flex items-center justify-center text-slate-400 hover:text-blue-600 transition-colors">
-                     <Plus className="w-4 h-4" />
-                  </button>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Google Calendar ID</h4>
+                <div className="text-xs text-slate-500 font-mono">
+                  {meeting.google_event_id ? meeting.google_event_id : 'Not Synced'}
                 </div>
               </div>
               
               {meeting.notes && (
-                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100 relative overflow-hidden">
+                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100 relative overflow-hidden mt-4">
                   <div className="flex items-center text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
                     <FileText className="w-3.5 h-3.5 mr-2" /> Agenda Log
                   </div>
-                  <p className="text-sm font-medium text-slate-600 line-clamp-2">{meeting.notes}</p>
+                  <p className="text-sm font-medium text-slate-600 line-clamp-3 whitespace-pre-wrap">{meeting.notes}</p>
                   <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
                      <ExternalLink className="w-4 h-4 text-blue-600" />
                   </div>
@@ -191,7 +247,8 @@ export default function Meetings() {
 
               <div className="pt-8 mt-4 border-t border-slate-50 flex justify-end space-x-3">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
-                <button type="submit" className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
+                <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
+                  {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Schedule Sync
                 </button>
               </div>

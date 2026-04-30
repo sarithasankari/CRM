@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Table from '../components/Table';
+import FileUpload from '../components/FileUpload';
 import { leadsApi, contactsApi, dealsApi } from '../services/api';
 import { 
   Plus, Download, ChevronDown, Calendar, ArrowDown, X, 
@@ -11,6 +12,9 @@ import { useToast } from '../context/ToastContext';
 
 export default function Leads() {
   const [leads, setLeads] = useState([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalLeads, setTotalLeads] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
   const [viewingLead, setViewingLead] = useState(null);
@@ -22,6 +26,9 @@ export default function Leads() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusFilter, setStatusFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importStrategy, setImportStrategy] = useState('skip');
+  const [importFile, setImportFile] = useState(null);
   const { addToast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -30,11 +37,18 @@ export default function Leads() {
 
   // ─── Data Fetching ───────────────────────────────────────────────────────────
 
-  const fetchLeads = async () => {
+  const fetchLeads = async (pageToFetch = 1, append = false) => {
     try {
-      setIsLoading(true);
-      const data = await leadsApi.getAll();
-      setLeads(data.results || []);
+      if (!append) setIsLoading(true);
+      const data = await leadsApi.getAll({ page: pageToFetch });
+      if (append) {
+        setLeads(prev => [...prev, ...(data.results || [])]);
+      } else {
+        setLeads(data.results || []);
+      }
+      setHasMore(!!data.next);
+      setPage(pageToFetch);
+      setTotalLeads(data.count || 0);
       setError(null);
     } catch (err) {
       setError('Failed to load leads. Please try again later.');
@@ -44,8 +58,14 @@ export default function Leads() {
     }
   };
 
+  const handleLoadMore = () => {
+    if (!isLoading && hasMore) {
+      fetchLeads(page + 1, true);
+    }
+  };
+
   useEffect(() => {
-    fetchLeads();
+    fetchLeads(1, false);
   }, []);
 
   // ─── CRUD Handlers ───────────────────────────────────────────────────────────
@@ -58,6 +78,26 @@ export default function Leads() {
       fetchLeads();
     } catch (err) {
       addToast('Failed to delete lead', 'error');
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setIsSubmitting(true);
+    try {
+      const res = await leadsApi.importCSV(importFile, importStrategy);
+      if (res.status === 'processing') {
+        addToast(res.message);
+      } else {
+        addToast(`Success: ${res.success_count}. Errors: ${res.errors?.length || 0}`);
+      }
+      setShowImportModal(false);
+      setImportFile(null);
+      fetchLeads();
+    } catch (err) {
+      addToast('Import failed', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -667,8 +707,15 @@ export default function Leads() {
             />
           </div>
           
-          <button className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+          <button onClick={() => leadsApi.exportCSV()} className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
             <Download className="w-4 h-4" />
+          </button>
+          
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="inline-flex items-center px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-all"
+          >
+            Import CSV
           </button>
           
           <button
@@ -763,14 +810,14 @@ export default function Leads() {
         ) : null}
 
         <div className="overflow-x-auto">
-          <Table columns={columns} data={filteredLeads} />
+          <Table columns={columns} data={filteredLeads} onLoadMore={handleLoadMore} hasMore={hasMore && statusFilter === 'All' && !searchQuery} />
         </div>
 
         {/* Custom Pagination */}
         <div className="px-8 py-6 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
           <div className="flex items-center space-x-4">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-              Displaying <span className="text-slate-900">{filteredLeads.length}</span> of <span className="text-slate-900">{leads.length}</span> results
+              Displaying <span className="text-slate-900">{filteredLeads.length}</span> of <span className="text-slate-900">{totalLeads || leads.length}</span> results
             </span>
           </div>
           <div className="flex items-center space-x-2">
@@ -864,6 +911,58 @@ export default function Leads() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import CSV Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Import Leads</h3>
+                <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">Upload CSV file</p>
+              </div>
+              <button onClick={() => setShowImportModal(false)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Duplicate Strategy (Email)</label>
+                <select 
+                  value={importStrategy} 
+                  onChange={(e) => setImportStrategy(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-3 text-sm font-bold outline-none transition-all"
+                >
+                  <option value="skip">Skip duplicates</option>
+                  <option value="update">Update existing records</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">CSV File</label>
+                <FileUpload 
+                  accept=".csv"
+                  maxFiles={1}
+                  onUpload={(files) => setImportFile(files[0])}
+                />
+              </div>
+            </div>
+            
+            <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-end space-x-3">
+              <button onClick={() => setShowImportModal(false)} className="px-6 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-900">Cancel</button>
+              <button 
+                onClick={handleImport}
+                disabled={!importFile || isSubmitting}
+                className="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-50 flex items-center"
+              >
+                {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Start Import
+              </button>
+            </div>
           </div>
         </div>
       )}

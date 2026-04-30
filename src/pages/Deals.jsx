@@ -116,7 +116,7 @@ export default function Deals() {
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Deals</h2>
           <div className="flex items-center mt-1 space-x-2">
-            <span className="text-sm font-medium text-slate-500">Sales Pipeline</span>
+            <span className="text-sm font-medium text-slate-500">Deal Anti-Gravity Field</span>
             <span className="w-1 h-1 rounded-full bg-slate-300"></span>
             <span className="text-sm font-bold text-blue-600">{Object.keys(data.deals).length} Total Deals</span>
           </div>
@@ -148,7 +148,7 @@ export default function Deals() {
         {isLoading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50/50 z-20 backdrop-blur-[2px]">
             <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
-            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Syncing Pipeline...</p>
+            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Calibrating Gravity Field...</p>
           </div>
         )}
 
@@ -205,7 +205,7 @@ export default function Deals() {
 
                                 <div className="flex items-center justify-between pt-4 border-t border-slate-50">
                                    <div className="flex flex-col">
-                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Value</span>
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Gravity Mass</span>
                                       <span className="text-sm font-black text-slate-900">${deal.amount.toLocaleString()}</span>
                                    </div>
                                    <div className="flex -space-x-2">

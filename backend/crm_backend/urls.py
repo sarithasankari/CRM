@@ -42,8 +42,16 @@ router.register(r'quotes', QuoteViewSet)
 router.register(r'invoices', InvoiceViewSet)
 router.register(r'cases', CaseViewSet)
 
+from crm_backend.views.analytics import analytics_dashboard
+
+from utils.google_views import get_auth_url, save_token, status
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
+    path('api/analytics/', analytics_dashboard),
+    path('api/google/auth-url/', get_auth_url),
+    path('api/google/connect/', save_token),
+    path('api/google/status/', status),
     path('api/', include(router.urls)),
 ]

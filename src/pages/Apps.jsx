@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   Puzzle, ToggleLeft, ToggleRight, ExternalLink, 
   Settings2, Activity, Globe, Zap, CheckCircle2, 
   Search, Filter, Plus
 } from 'lucide-react';
+import { googleApi } from '../services/api';
 
 const initialApps = [
   { id: 1, name: 'Slack', description: 'Real-time synchronization of deal milestones to specific Slack channels.', category: 'Communication', enabled: true, color: 'emerald' },
   { id: 2, name: 'Mailchimp', description: 'Automated bidirectional sync for audience segmentation and marketing leads.', category: 'Marketing', enabled: false, color: 'amber' },
-  { id: 3, name: 'Google Workspace', description: 'Seamless integration of calendar, meetings, and shared drive protocols.', category: 'Productivity', enabled: true, color: 'blue' },
+  { id: 3, name: 'Google Workspace', description: 'Seamless integration of calendar, meetings, and shared drive protocols.', category: 'Productivity', enabled: false, color: 'blue' },
   { id: 4, name: 'QuickBooks', description: 'Direct export of finalized invoices and fiscal reports to accounting ledgers.', category: 'Finance', enabled: false, color: 'indigo' },
   { id: 5, name: 'Zendesk', description: 'Synchronize support tickets and client case histories with CRM accounts.', category: 'Support', enabled: true, color: 'rose' },
 ];
@@ -16,8 +18,45 @@ const initialApps = [
 export default function Apps() {
   const [apps, setApps] = useState(initialApps);
   const [searchTerm, setSearchTerm] = useState('');
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const toggleApp = (id) => {
+  useEffect(() => {
+    // Check initial Google connection status
+    googleApi.getStatus().then(res => {
+      setApps(currentApps => currentApps.map(app => 
+        app.name === 'Google Workspace' ? { ...app, enabled: res.connected } : app
+      ));
+    }).catch(console.error);
+
+    // Handle OAuth callback if "code" is in URL
+    const searchParams = new URLSearchParams(location.search);
+    const code = searchParams.get('code');
+    if (code) {
+      const redirectUri = window.location.origin + window.location.pathname;
+      googleApi.connect(code, redirectUri).then(() => {
+        setApps(currentApps => currentApps.map(app => 
+          app.name === 'Google Workspace' ? { ...app, enabled: true } : app
+        ));
+        navigate(location.pathname, { replace: true });
+      }).catch(console.error);
+    }
+  }, [location, navigate]);
+
+  const toggleApp = async (id) => {
+    const targetApp = apps.find(a => a.id === id);
+    if (targetApp.name === 'Google Workspace' && !targetApp.enabled) {
+      try {
+        const redirectUri = window.location.origin + window.location.pathname;
+        const data = await googleApi.getAuthUrl(redirectUri);
+        if (data.url) {
+            window.location.href = data.url;
+            return;
+        }
+      } catch (error) {
+        console.error("Failed to get Google Auth URL:", error);
+      }
+    }
     setApps(apps.map(app => app.id === id ? { ...app, enabled: !app.enabled } : app));
   };
 
@@ -73,7 +112,7 @@ export default function Apps() {
               </div>
               <button 
                 onClick={() => toggleApp(app.id)} 
-                className="focus:outline-none transition-transform active:scale-95"
+                className="focus:outline-none transition-transform active:scale-95 z-10 relative"
               >
                 {app.enabled ? (
                   <ToggleRight className="w-10 h-10 text-blue-600 fill-blue-50" />
@@ -88,7 +127,7 @@ export default function Apps() {
             </p>
 
             <div className={`mt-8 pt-6 border-t border-slate-50 flex items-center justify-between transition-all duration-300 ${app.enabled ? 'opacity-100 translate-y-0' : 'opacity-30 pointer-events-none'}`}>
-              <button className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline flex items-center">
+              <button className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline flex items-center z-10 relative">
                 Configure protocol <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
               </button>
               {app.enabled && (
@@ -113,10 +152,10 @@ export default function Apps() {
                Automate cross-platform data synchronization and enhance your strategic workflows.
             </p>
             <div className="flex items-center space-x-4">
-               <button className="px-8 py-4 bg-white text-slate-900 rounded-2xl font-black text-sm shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all">
+               <button className="px-8 py-4 bg-white text-slate-900 rounded-2xl font-black text-sm shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all z-10 relative">
                   Browse Marketplace
                </button>
-               <button className="px-8 py-4 bg-slate-800 text-white rounded-2xl font-black text-sm hover:bg-slate-700 transition-all border border-slate-700">
+               <button className="px-8 py-4 bg-slate-800 text-white rounded-2xl font-black text-sm hover:bg-slate-700 transition-all border border-slate-700 z-10 relative">
                   Developer API Docs
                </button>
             </div>

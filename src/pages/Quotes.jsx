@@ -104,7 +104,7 @@ export default function Quotes() {
       accessor: 'actions',
       render: () => (
         <div className="flex justify-end space-x-2">
-          <button className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
+          <button onClick={() => window.open(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api'}/quotes/${row.id}/pdf/`, '_blank')} className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
             <Download className="w-4 h-4" />
           </button>
           <button className="p-2 text-slate-300 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition-all">

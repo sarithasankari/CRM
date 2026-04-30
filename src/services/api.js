@@ -120,7 +120,28 @@ export const createResource = (endpoint) => ({
 });
 
 // Resources
-export const leadsApi = createResource('leads');
+export const leadsApi = {
+  ...createResource('leads'),
+  importCSV: async (file, duplicateStrategy = 'skip') => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('duplicate_strategy', duplicateStrategy);
+    const response = await api.post('/leads/import_csv/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return response.data;
+  },
+  exportCSV: async () => {
+    const response = await api.get('/leads/export_csv/', { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'leads_export.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+};
 export const dealsApi = createResource('deals');
 export const tasksApi = createResource('tasks');
 export const contactsApi = createResource('contacts');
@@ -132,5 +153,27 @@ export const quotesApi = createResource('quotes');
 export const invoicesApi = createResource('invoices');
 export const casesApi = createResource('cases');
 export const usersApi = createResource('users');
+
+export const analyticsApi = {
+  getDashboard: async () => {
+    const response = await api.get('/analytics/');
+    return response.data;
+  }
+};
+
+export const googleApi = {
+  getAuthUrl: async (redirectUri) => {
+    const response = await api.get('/google/auth-url/', { params: { redirect_uri: redirectUri } });
+    return response.data;
+  },
+  connect: async (code, redirectUri) => {
+    const response = await api.post('/google/connect/', { code, redirect_uri: redirectUri });
+    return response.data;
+  },
+  getStatus: async () => {
+    const response = await api.get('/google/status/');
+    return response.data;
+  }
+};
 
 export default api;

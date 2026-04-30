@@ -138,7 +138,7 @@ export default function Workflows() {
              <WorkflowIcon className="w-5 h-5 text-blue-600" />
              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Settings</span>
           </div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Workflows</h2>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Antigravity Workflows</h2>
         </div>
         
         <div className="flex items-center space-x-3">
@@ -199,8 +199,8 @@ export default function Workflows() {
             <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-slate-100">
                <Settings className="h-10 w-10 text-slate-300" />
             </div>
-            <h3 className="text-xl font-black text-slate-900">No Automation Protocols</h3>
-            <p className="text-slate-500 mt-2 font-medium">Initialize your first rule to automate repetitive tasks.</p>
+            <h3 className="text-xl font-black text-slate-900">No Antigravity Protocols</h3>
+            <p className="text-slate-500 mt-2 font-medium">Initialize your first Gravity Rule to automate repetitive tasks and keep deals grounded.</p>
           </div>
         ) : (
           <Table columns={columns} data={workflows} />

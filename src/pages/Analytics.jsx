@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { analyticsApi } from '../services/api';
 import { 
   TrendingUp, DollarSign, Clock, Award, 
   TrendingDown, Minus, ArrowUpRight, ArrowDownRight, Map,
@@ -9,40 +10,36 @@ import {
   ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 
-const forecastData = [
-  { name: 'JAN', actual: 4200, forecast: 5000 },
-  { name: 'FEB', actual: 4800, forecast: 5500 },
-  { name: 'MAR', actual: 4500, forecast: 4800 },
-  { name: 'APR', actual: 6800, forecast: 7500 },
-  { name: 'MAY', actual: 8500, forecast: 9000 },
-  { name: 'JUN', actual: 9200, forecast: 8500 },
-];
-
-const teamData = [
-  { 
-    id: 1, name: 'Marcus Thorne', role: 'Enterprise Account Manager', 
-    deals: 24, revenue: '$342,000', winRate: 78, 
-    trend: 'up', trendColor: 'text-emerald-500' 
-  },
-  { 
-    id: 2, name: 'Sarah Jenkins', role: 'Senior Sales Associate', 
-    deals: 19, revenue: '$285,500', winRate: 64, 
-    trend: 'up', trendColor: 'text-emerald-500' 
-  },
-  { 
-    id: 3, name: 'David Chen', role: 'Mid-Market Specialist', 
-    deals: 15, revenue: '$198,200', winRate: 52, 
-    trend: 'flat', trendColor: 'text-slate-300' 
-  },
-  { 
-    id: 4, name: 'Elena Rodriguez', role: 'Sales Development Rep', 
-    deals: 12, revenue: '$145,000', winRate: 41, 
-    trend: 'down', trendColor: 'text-rose-500' 
-  },
-];
+// Dummy data removed. Everything is fetched from the backend API.
 
 export default function Analytics() {
   const [timeframe, setTimeframe] = useState('Monthly');
+  const [stats, setStats] = useState({
+    conversion_rate: '0.0%',
+    avg_deal_size: '$0',
+    cycle_velocity: '0 Days',
+    win_ratio: '0.0%',
+    total_revenue: '$0'
+  });
+  const [forecastData, setForecastData] = useState([]);
+  const [teamData, setTeamData] = useState([]);
+
+  useEffect(() => {
+    let interval;
+    const fetchAnalytics = () => {
+      analyticsApi.getDashboard()
+        .then(data => {
+          if (data.analytics) setStats(data.analytics);
+          if (data.trends) setForecastData(data.trends);
+          if (data.team_performance) setTeamData(data.team_performance);
+        })
+        .catch(err => console.error("Failed to load analytics", err));
+    };
+    
+    fetchAnalytics();
+    interval = setInterval(fetchAnalytics, 30000);
+    return () => clearInterval(interval);
+  }, [timeframe]);
 
   const TrendIcon = ({ type, className }) => {
     if (type === 'up') return <TrendingUp className={className} />;
@@ -83,10 +80,10 @@ export default function Analytics() {
       {/* High-Level KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Conversion Rate', value: '24.8%', trend: '+12.5%', icon: Zap, color: 'blue' },
-          { label: 'Avg Deal Size', value: '$14,200', trend: '+8.2%', icon: DollarSign, color: 'emerald' },
-          { label: 'Cycle Velocity', value: '18 Days', trend: '-4 Days', icon: Clock, color: 'amber' },
-          { label: 'Win Ratio', value: '62.4%', trend: '+3.1%', icon: Award, color: 'indigo' }
+          { label: 'Conversion Rate', value: stats.conversion_rate, trend: '+12.5%', icon: Zap, color: 'blue' },
+          { label: 'Avg Deal Size', value: stats.avg_deal_size, trend: '+8.2%', icon: DollarSign, color: 'emerald' },
+          { label: 'Cycle Velocity', value: stats.cycle_velocity, trend: '-4 Days', icon: Clock, color: 'amber' },
+          { label: 'Win Ratio', value: stats.win_ratio, trend: '+3.1%', icon: Award, color: 'indigo' }
         ].map((kpi, i) => (
           <div key={i} className="glass-card p-8 group hover:-translate-y-1 transition-all duration-300">
             <div className="flex justify-between items-start">
@@ -137,7 +134,7 @@ export default function Analytics() {
                   cursor={{ fill: 'transparent' }} 
                   contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px' }} 
                 />
-                <Bar dataKey="forecast" fill="#eff6ff" radius={[12, 12, 0, 0]} barSize={40} />
+                <Bar dataKey="projected" fill="#eff6ff" radius={[12, 12, 0, 0]} barSize={40} />
                 <Bar dataKey="actual" fill="#2563eb" radius={[12, 12, 0, 0]} barSize={24} />
               </BarChart>
             </ResponsiveContainer>
@@ -208,7 +205,11 @@ export default function Analytics() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {teamData.map((person) => (
+              {teamData.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="px-10 py-10 text-center text-slate-400 font-medium">No team performance data available</td>
+                </tr>
+              ) : teamData.map((person) => (
                 <tr key={person.id} className="hover:bg-slate-50/50 transition-all group">
                   <td className="px-10 py-6">
                     <div className="flex items-center">
@@ -216,7 +217,7 @@ export default function Analytics() {
                          {person.name.split(' ').map(n => n[0]).join('')}
                       </div>
                       <div className="ml-5">
-                        <div className="text-base font-bold text-slate-900">{person.name}</div>
+                        <div className="text-base font-bold text-slate-900 line-clamp-1">{person.name}</div>
                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{person.role}</div>
                       </div>
                     </div>

@@ -25,9 +25,9 @@ export default function Feedback() {
         <div>
            <div className="flex items-center space-x-2 mb-1">
              <Smile className="w-5 h-5 text-blue-600" />
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sentiment Analysis</span>
+             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Feedback Gravity System</span>
           </div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Feedback</h2>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Feedback Gravity Field</h2>
         </div>
         
         <div className="flex items-center space-x-3">
@@ -35,7 +35,7 @@ export default function Feedback() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
             <input 
               type="text" 
-              placeholder="Filter feedback registry..."
+              placeholder="Filter gravity data..."
               className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all shadow-sm"
             />
           </div>
@@ -53,7 +53,7 @@ export default function Feedback() {
               <div className="w-16 h-16 bg-blue-50 rounded-[24px] flex items-center justify-center text-blue-600 mb-4 shadow-inner">
                  <Star className="w-8 h-8 fill-current" />
               </div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Aggregate Score</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Overall Gravity Score</p>
               <h3 className="text-5xl font-black text-slate-900 my-2 tracking-tighter">4.8</h3>
               <div className="flex text-amber-400 space-x-0.5 mb-4">
                 {[...Array(5)].map((_, i) => <Star key={i} className="w-4 h-4 fill-current" />)}
@@ -62,7 +62,7 @@ export default function Feedback() {
            </div>
 
            <div className="glass-card p-6 space-y-4">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Sentiment Distribution</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Gravity Distribution</p>
               {[
                 { label: 'Positive', value: 84, color: 'bg-emerald-500' },
                 { label: 'Neutral', value: 12, color: 'bg-slate-300' },
@@ -87,7 +87,7 @@ export default function Feedback() {
             <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
               <div className="flex items-center space-x-3">
                  <MessageSquare className="w-4 h-4 text-blue-600" />
-                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Registry Interaction Log</h3>
+                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gravity Interaction Log</h3>
               </div>
               <div className="flex items-center space-x-3">
                 <Filter className="w-4 h-4 text-slate-400" />
@@ -96,7 +96,7 @@ export default function Feedback() {
                   value={filterRating}
                   onChange={(e) => setFilterRating(Number(e.target.value))}
                 >
-                  <option value={0}>All Protocols</option>
+                  <option value={0}>All Feedback</option>
                   <option value={5}>5 Star Rating</option>
                   <option value={4}>4 Star Rating</option>
                   <option value={3}>3 Star Rating</option>
@@ -147,7 +147,7 @@ export default function Feedback() {
               {filteredFeedback.length === 0 && (
                 <div className="p-20 text-center">
                    <BarChart2 className="w-12 h-12 text-slate-100 mx-auto mb-4" />
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No matching registry records detected.</p>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No matching gravity anomalies detected.</p>
                 </div>
               )}
             </div>
@@ -157,7 +157,7 @@ export default function Feedback() {
           <div className="glass-card p-6 flex items-center justify-between border-blue-100 bg-blue-50/10">
              <div className="flex items-center space-x-4">
                 <TrendingUp className="w-5 h-5 text-blue-600" />
-                <p className="text-[11px] font-black text-slate-900 uppercase tracking-widest">Growth Opportunity Detected in "Acme Corp" Engagement Protocol</p>
+                <p className="text-[11px] font-black text-slate-900 uppercase tracking-widest">High Gravity Action Required for "Acme Corp" Feedback</p>
              </div>
              <button className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline flex items-center">
                 Analyze Strategy <ChevronRight className="w-3 h-3 ml-1" />

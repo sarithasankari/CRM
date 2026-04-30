@@ -5,100 +5,40 @@ import {
   ArrowUpRight, ArrowDownRight, Activity, Zap, CheckCircle2, Clock
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
-import { leadsApi, dealsApi, tasksApi } from '../services/api';
-
-const chartData = [
-  { name: 'Jan', actual: 4000, projected: 1000 },
-  { name: 'Feb', actual: 6000, projected: 1500 },
-  { name: 'Mar', actual: 4500, projected: 3000 },
-  { name: 'Apr', actual: 8000, projected: 2000 },
-  { name: 'May', actual: 9500, projected: 2500 },
-  { name: 'Jun', actual: 8500, projected: 3500 },
-];
-
-const miniChartData = [
-  { value: 400 }, { value: 600 }, { value: 500 }, { value: 800 }, { value: 700 }, { value: 900 }
-];
-
-const activities = [
-  { 
-    id: 1, 
-    type: 'deal', 
-    title: 'Deal Won: TechFlow Inc.', 
-    meta: 'Sarah Jenkins • 2 mins ago', 
-    badge: '+$45,000',
-    badgeColor: 'bg-emerald-50 text-emerald-600',
-    iconColor: 'bg-emerald-100 text-emerald-600',
-    icon: <Zap className="w-4 h-4" />
-  },
-  { 
-    id: 2, 
-    type: 'lead', 
-    title: 'New Enterprise Lead', 
-    meta: 'Global Logistics • 1 hour ago', 
-    badge: 'HOT',
-    badgeColor: 'bg-amber-50 text-amber-600',
-    iconColor: 'bg-amber-100 text-amber-600',
-    icon: <Target className="w-4 h-4" />
-  },
-  { 
-    id: 3, 
-    type: 'task', 
-    title: 'Task Overdue', 
-    meta: 'Contract Review • 3 hours ago', 
-    badge: 'HIGH',
-    badgeColor: 'bg-rose-50 text-rose-600',
-    iconColor: 'bg-rose-100 text-rose-600',
-    icon: <Clock className="w-4 h-4" />
-  },
-];
+import { leadsApi, dealsApi, tasksApi, analyticsApi } from '../services/api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({ leads: 0, deals: 0, revenue: 0, tasks: 0 });
+  const [chartData, setChartData] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [dealClosures, setDealClosures] = useState([]);
+  const [analytics, setAnalytics] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    let interval;
     const fetchDashboardData = async () => {
-      setIsLoading(true);
+      // Don't show full loading state on background refreshes
+      if (Object.keys(analytics).length === 0) setIsLoading(true);
       try {
-        const [leadsRes, dealsRes, tasksRes] = await Promise.all([
-          leadsApi.getAll(),
-          dealsApi.getAll(),
-          tasksApi.getAll()
-        ]);
-        
-        const leads = leadsRes.results || leadsRes;
-        const deals = dealsRes.results || dealsRes;
-        const tasks = tasksRes.results || tasksRes;
-
-        const totalRevenue = deals.reduce((sum, deal) => sum + parseFloat(deal.value || 0), 0);
-        const pendingTasks = tasks.filter(t => t.status !== 'Completed').length;
-
-        setStats({
-          leads: leads.length,
-          deals: deals.length,
-          revenue: totalRevenue,
-          tasks: pendingTasks
-        });
-
-        setDealClosures(deals.slice(0, 5).map(deal => ({
-          id: deal.id,
-          company: deal.title,
-          contact: deal.contact ? 'Assigned' : 'Unassigned',
-          value: `$${parseFloat(deal.value || 0).toLocaleString()}`,
-          probability: deal.stage === 'won' ? 100 : deal.stage === 'lost' ? 0 : deal.stage === 'proposal' ? 75 : 50,
-          status: deal.stage,
-          statusColor: deal.stage === 'won' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600',
-        })));
+        const res = await analyticsApi.getDashboard();
+        setStats(res.kpis);
+        setChartData(res.trends);
+        setActivities(res.live_pulse);
+        setDealClosures(res.deal_closures);
+        setAnalytics(res.analytics);
       } catch (err) {
         setError("Failed to sync dashboard metrics");
       } finally {
         setIsLoading(false);
       }
     };
+    
     fetchDashboardData();
+    // Auto-refresh every 30 seconds for real-time updates
+    interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -218,14 +158,16 @@ export default function Dashboard() {
             <button className="text-xs font-bold text-blue-600 hover:underline">View History</button>
           </div>
           <div className="space-y-6 flex-1">
-            {activities.map((item) => (
+            {activities.length === 0 ? (
+              <div className="text-center text-slate-400 py-10">No recent activity</div>
+            ) : activities.map((item) => (
               <div key={item.id} className="flex items-start space-x-4 group cursor-pointer">
-                <div className={`p-3 ${item.iconColor} rounded-2xl shadow-sm group-hover:scale-110 transition-transform`}>
-                  {item.icon}
+                <div className={`p-3 ${item.iconColor} rounded-2xl shadow-sm group-hover:scale-110 transition-transform flex items-center justify-center w-10 h-10`}>
+                  {item.type === 'meeting' ? <Zap className="w-4 h-4" /> : item.type === 'call' ? <Clock className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-slate-900">{item.title}</p>
+                    <p className="text-sm font-bold text-slate-900 line-clamp-1">{item.title}</p>
                     <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${item.badgeColor}`}>
                       {item.badge}
                     </span>
@@ -239,7 +181,7 @@ export default function Dashboard() {
              <div className="p-4 bg-slate-900 rounded-2xl flex items-center justify-between">
                 <div>
                    <p className="text-white text-xs font-bold uppercase tracking-widest opacity-60">Success Rate</p>
-                   <p className="text-white text-xl font-black mt-1">92.4%</p>
+                   <p className="text-white text-xl font-black mt-1">{analytics?.conversion_rate || '0.0%'}</p>
                 </div>
                 <CheckCircle2 className="w-8 h-8 text-emerald-400" />
              </div>
@@ -269,11 +211,15 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {dealClosures.map((deal) => (
+              {dealClosures.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="px-8 py-8 text-center text-slate-400 font-medium">No active deals found</td>
+                </tr>
+              ) : dealClosures.map((deal) => (
                 <tr key={deal.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-8 py-5">
-                    <p className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{deal.company}</p>
-                    <p className="text-[11px] font-medium text-slate-400 mt-0.5">Assigned to Major Accounts</p>
+                    <p className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">{deal.company}</p>
+                    <p className="text-[11px] font-medium text-slate-400 mt-0.5">{deal.contact}</p>
                   </td>
                   <td className="px-8 py-5">
                     <span className="text-sm font-black text-slate-900">{deal.value}</span>
