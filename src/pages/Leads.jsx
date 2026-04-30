@@ -86,78 +86,42 @@ export default function Leads() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      // 1. Update lead status to qualified
-      await leadsApi.update(viewingLead.id, { ...viewingLead, status: 'qualified' });
-      
-      // 2. Create or Find the Contact
-      const contactPayload = {
-        name: viewingLead.name,
-        email: viewingLead.email,
-        phone: viewingLead.phone || '',
-        company: viewingLead.company || viewingLead.name,
-        linked_lead: viewingLead.id
+      const payload = {
+        createDeal: convertData.createDeal,
+        dealName: convertData.dealName,
+        amount: convertData.amount,
+        stage: convertData.stage
       };
-      
-      let finalContact = null;
-      try {
-        finalContact = await contactsApi.create(contactPayload);
-      } catch (contactErr) {
-        // If email already exists, find the existing contact and use it
-        const errorData = contactErr.response?.data;
-        if (errorData && (errorData.email || JSON.stringify(errorData).includes('already exists'))) {
-          const existingContactsRes = await contactsApi.getAll();
-          const allContacts = existingContactsRes.results || existingContactsRes;
-          finalContact = allContacts.find(c => c.email === contactPayload.email);
-          
-          if (!finalContact) {
-            throw contactErr; // If we can't find it for some reason, throw the original error
-          }
+
+      if (convertData.closingDate) {
+        if (convertData.closingDate.includes('-')) {
+          payload.closingDate = convertData.closingDate;
         } else {
-          throw contactErr; // Rethrow if it's not an email collision
+          const parts = convertData.closingDate.split('/');
+          if (parts.length === 3) {
+            const day = parts[0].padStart(2, '0');
+            const month = parts[1].padStart(2, '0');
+            payload.closingDate = `${parts[2]}-${month}-${day}`;
+          }
         }
       }
-      
-      // 3. Create the Deal if checked
-      let newDeal = null;
-      if (convertData.createDeal) {
-        const dealPayload = {
-          title: convertData.dealName || viewingLead.company || viewingLead.name || 'New Deal',
-          value: convertData.amount || 0,
-          stage: convertData.stage || 'Qualification',
-          contact: finalContact.id
-        };
-        
-        // Add date if provided and valid
-        if (convertData.closingDate) {
-           if (convertData.closingDate.includes('-')) {
-             dealPayload.expected_close_date = convertData.closingDate;
-           } else {
-             // Basic parse from DD/MM/YYYY to YYYY-MM-DD (with zero padding)
-             const parts = convertData.closingDate.split('/');
-             if (parts.length === 3) {
-               const day = parts[0].padStart(2, '0');
-               const month = parts[1].padStart(2, '0');
-               dealPayload.expected_close_date = `${parts[2]}-${month}-${day}`;
-             }
-           }
-        }
-        
-        newDeal = await dealsApi.create(dealPayload);
-      }
+
+      const response = await leadsApi.convert(viewingLead.id, payload);
       
       setConversionSuccess({
-        account: finalContact.company || finalContact.name,
-        contact: finalContact.name,
-        deal: newDeal ? newDeal.title : null
+        account: response.contact.company || response.contact.name,
+        contact: response.contact.name,
+        deal: response.deal ? response.deal.title : null
       });
       setConvertingLead(false);
       fetchLeads();
     } catch (err) {
       console.error('Conversion Error Details:', err.response?.data || err);
-      // Try to extract a meaningful error message from DRF
       let errorMsg = 'Failed to convert lead';
       if (err.response?.data) {
-        if (typeof err.response.data === 'object') {
+        if (typeof err.response.data === 'object' && err.response.data.detail) {
+          errorMsg = err.response.data.detail;
+        } else if (typeof err.response.data === 'object') {
           const firstKey = Object.keys(err.response.data)[0];
           if (firstKey) {
             errorMsg = `${firstKey}: ${err.response.data[firstKey]}`;
@@ -592,7 +556,28 @@ export default function Leads() {
                 </div>
                 <div className="flex">
                   <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Lead Status</div>
-                  <div className="text-[13px] text-gray-800">-</div>
+                  <div className="text-[13px] text-gray-800">
+                    <select
+                      value={viewingLead.status || 'new'}
+                      onChange={async (e) => {
+                        const newStatus = e.target.value;
+                        setViewingLead({ ...viewingLead, status: newStatus });
+                        try {
+                          await leadsApi.update(viewingLead.id, { ...viewingLead, status: newStatus });
+                          fetchLeads();
+                          addToast('Lead status updated successfully');
+                        } catch (err) {
+                          addToast('Failed to update status', 'error');
+                        }
+                      }}
+                      className={`px-2 py-1 rounded text-[11px] font-bold uppercase tracking-wider outline-none cursor-pointer ${getStatusStyles(viewingLead.status)}`}
+                    >
+                      <option value="new">New</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="qualified">Qualified</option>
+                      <option value="lost">Lost</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>

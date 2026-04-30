@@ -30,10 +30,10 @@ from invoices.views import InvoiceViewSet
 from support.views import CaseViewSet
 
 router = DefaultRouter()
-router.register(r'leads', LeadViewSet)
+router.register(r'leads', LeadViewSet, basename='lead')
 router.register(r'contacts', ContactViewSet)
-router.register(r'deals', DealViewSet)
-router.register(r'tasks', TaskViewSet)
+router.register(r'deals', DealViewSet, basename='deal')
+router.register(r'tasks', TaskViewSet, basename='task')
 router.register(r'activities', ActivityViewSet)
 router.register(r'projects', ProjectViewSet)
 router.register(r'workflows', WorkflowViewSet)

@@ -120,7 +120,13 @@ export const createResource = (endpoint) => ({
 });
 
 // Resources
-export const leadsApi = createResource('leads');
+export const leadsApi = {
+  ...createResource('leads'),
+  convert: async (id, data) => {
+    const response = await api.post(`/leads/${id}/convert/`, data);
+    return response.data;
+  }
+};
 export const dealsApi = createResource('deals');
 export const tasksApi = createResource('tasks');
 export const contactsApi = createResource('contacts');
