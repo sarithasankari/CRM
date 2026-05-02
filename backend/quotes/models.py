@@ -1,5 +1,7 @@
 from django.db import models
+from django.conf import settings
 from deals.models import Deal
+
 
 class Quote(models.Model):
     STATUS_CHOICES = (
@@ -8,7 +10,12 @@ class Quote(models.Model):
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
     )
-    
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='owned_quotes',
+    )
     deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name='quotes')
     quote_number = models.CharField(max_length=50, unique=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)

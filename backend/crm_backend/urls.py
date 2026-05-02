@@ -22,7 +22,7 @@ from leads.views import LeadViewSet
 from contacts.views import ContactViewSet
 from deals.views import DealViewSet
 from tasks.views import TaskViewSet
-from activities.views import ActivityViewSet
+from activities.views import ActivityViewSet, MeetingViewSet, CallViewSet, CampaignViewSet
 from projects.views import ProjectViewSet
 from workflows.views import WorkflowViewSet, WorkflowLogViewSet
 from quotes.views import QuoteViewSet
@@ -31,19 +31,26 @@ from support.views import CaseViewSet
 
 router = DefaultRouter()
 router.register(r'leads', LeadViewSet, basename='lead')
-router.register(r'contacts', ContactViewSet)
+router.register(r'contacts', ContactViewSet, basename='contact')
 router.register(r'deals', DealViewSet, basename='deal')
 router.register(r'tasks', TaskViewSet, basename='task')
 router.register(r'activities', ActivityViewSet)
+router.register(r'meetings', MeetingViewSet)
+router.register(r'calls', CallViewSet, basename='call')
+router.register(r'campaigns', CampaignViewSet, basename='campaign')
 router.register(r'projects', ProjectViewSet)
 router.register(r'workflows', WorkflowViewSet)
 router.register(r'workflow-logs', WorkflowLogViewSet)
-router.register(r'quotes', QuoteViewSet)
-router.register(r'invoices', InvoiceViewSet)
+router.register(r'quotes', QuoteViewSet, basename='quote')
+router.register(r'invoices', InvoiceViewSet, basename='invoice')
 router.register(r'cases', CaseViewSet)
+
+from .views import DashboardStatsAPIView, TeamPerformanceAPIView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
+    path('api/analytics/dashboard/', DashboardStatsAPIView.as_view(), name='dashboard-stats'),
+    path('api/analytics/team/', TeamPerformanceAPIView.as_view(), name='team-performance'),
     path('api/', include(router.urls)),
 ]

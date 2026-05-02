@@ -1,33 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, Users, Calendar, Clock, Video, FileText, X, 
   MapPin, Phone, MoreHorizontal, Search, Filter, 
   ChevronRight, CalendarDays, ExternalLink
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-
-const initialMeetings = [
-  { id: 1, title: 'Product Demo: Enterprise Suite', date: 'Oct 25, 2023', time: '10:00 AM - 11:00 AM', participants: ['Sarah Miller', 'John Doe'], type: 'Video Call', notes: 'Initial walk-through of the v3 dashboard features.' },
-  { id: 2, type: 'In Person', title: 'Q3 Strategy Sync', date: 'Oct 26, 2023', time: '2:00 PM - 3:30 PM', participants: ['Jane Smith', 'Exec Team'], notes: 'Quarterly review of sales pipeline velocity and churn rates.' },
-];
+import { meetingsApi } from '../services/api';
 
 export default function Meetings() {
-  const [meetings, setMeetings] = useState(initialMeetings);
+  const [meetings, setMeetings] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { addToast } = useToast();
   const [formData, setFormData] = useState({ title: '', date: '', time: '', participants: '', type: 'Video Call', notes: '' });
 
-  const handleAddMeeting = (e) => {
+  const fetchMeetings = async () => {
+    setIsLoading(true);
+    try {
+      const data = await meetingsApi.getAll();
+      setMeetings(data.results || data);
+    } catch (err) {
+      addToast("Failed to fetch meetings", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMeetings();
+  }, []);
+
+  const handleAddMeeting = async (e) => {
     e.preventDefault();
-    const newMeeting = { 
-      id: Date.now(), 
-      ...formData,
-      participants: formData.participants.split(',').map(p => p.trim())
-    };
-    setMeetings([newMeeting, ...meetings]);
-    addToast("Meeting scheduled successfully");
-    setIsModalOpen(false);
-    setFormData({ title: '', date: '', time: '', participants: '', type: 'Video Call', notes: '' });
+    try {
+      const payload = { 
+        ...formData,
+        participants: formData.participants.split(',').map(p => p.trim())
+      };
+      await meetingsApi.create(payload);
+      addToast("Meeting scheduled successfully");
+      setIsModalOpen(false);
+      setFormData({ title: '', date: '', time: '', participants: '', type: 'Video Call', notes: '' });
+      fetchMeetings();
+    } catch (err) {
+      addToast("Failed to schedule meeting", "error");
+    }
   };
 
   return (
@@ -58,8 +75,14 @@ export default function Meetings() {
       </div>
 
       {/* Main Grid Container */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {meetings.map(meeting => (
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin mb-4" />
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Syncing Protocols...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {meetings.map(meeting => (
           <div key={meeting.id} className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 p-8 hover:shadow-2xl hover:shadow-slate-200/60 transition-all group relative overflow-hidden">
             <div className="flex justify-between items-start mb-6">
               <div className="flex-1 pr-10">
@@ -139,6 +162,7 @@ export default function Meetings() {
           <span className="text-sm font-black uppercase tracking-widest">Initialize Sync</span>
         </button>
       </div>
+      )}
 
       {/* Schedule Modal */}
       {isModalOpen && (

@@ -1,15 +1,60 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Search, Bell, Settings, HelpCircle, Plus, 
   User, CheckSquare, LogOut, ChevronDown, 
-  Zap, Command, ShieldCheck, Globe, Activity
+  Zap, Command, ShieldCheck, Globe, Activity,
+  X, LayoutDashboard, Users, Briefcase, FileText, BarChart2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Header() {
   const [showNotifications, setShowNotifications] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
+  const [showProfile, setShowProfile]             = useState(false);
+  const [showQuickActions, setShowQuickActions]   = useState(false);
+  const [searchQuery, setSearchQuery]             = useState('');
+  const searchRef = useRef(null);
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  // Cmd+K / Ctrl+K → focus search
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+      if (e.key === 'Escape') {
+        searchRef.current?.blur();
+        setSearchQuery('');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Global search: navigate to most relevant page based on query
+  const handleSearch = (e) => {
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (q.includes('lead'))    navigate('/leads');
+      else if (q.includes('deal'))  navigate('/deals');
+      else if (q.includes('contact')) navigate('/contacts');
+      else if (q.includes('workflow')) navigate('/workflows');
+      else if (q.includes('report'))  navigate('/reports');
+      else navigate('/leads');  // default
+      setSearchQuery('');
+    }
+  };
+
+  const QUICK_ACTIONS = [
+    { label: 'New Lead',    icon: <User className="w-4 h-4" />,     path: '/leads' },
+    { label: 'New Deal',    icon: <Briefcase className="w-4 h-4" />, path: '/deals' },
+    { label: 'New Contact', icon: <Users className="w-4 h-4" />,    path: '/contacts' },
+    { label: 'Reports',     icon: <BarChart2 className="w-4 h-4" />, path: '/reports' },
+    { label: 'Dashboard',   icon: <LayoutDashboard className="w-4 h-4" />, path: '/' },
+  ];
 
   return (
     <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 h-20 flex items-center justify-between px-8 z-30 sticky top-0 shadow-sm">
@@ -21,9 +66,13 @@ export default function Header() {
             <Search className="h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
           </div>
           <input
+            ref={searchRef}
             className="block w-full pl-12 pr-14 py-3 border border-slate-100 rounded-2xl leading-5 bg-slate-50/50 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 sm:text-sm transition-all"
-            placeholder="Query Registry: Command + K"
+            placeholder="Search leads, deals, contacts… (Ctrl+K)"
             type="search"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearch}
           />
           <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
              <div className="flex items-center space-x-1 px-2 py-1 bg-slate-100 rounded-lg text-[9px] font-black text-slate-400 border border-slate-200 uppercase tracking-widest">
@@ -37,13 +86,47 @@ export default function Header() {
       {/* Operational Tools */}
       <div className="ml-8 flex items-center space-x-3">
         <div className="flex items-center space-x-1 px-2 py-1 bg-slate-50 border border-slate-100 rounded-2xl mr-4">
-           <button className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-white hover:shadow-sm transition-all">
+           {/* Globe → Leads (global record search) */}
+           <button
+             onClick={() => navigate('/leads')}
+             title="Go to Leads"
+             className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-white hover:shadow-sm transition-all"
+           >
             <Globe className="h-4 w-4" />
           </button>
-           <button className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-white hover:shadow-sm transition-all">
-            <Zap className="h-4 w-4" />
-          </button>
-          <button className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-white hover:shadow-sm transition-all">
+           {/* Zap → Quick Actions panel */}
+           <div className="relative">
+            <button
+              onClick={() => setShowQuickActions(v => !v)}
+              title="Quick Actions"
+              className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-white hover:shadow-sm transition-all"
+            >
+              <Zap className="h-4 w-4" />
+            </button>
+            {showQuickActions && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowQuickActions(false)} />
+                <div className="absolute left-0 mt-3 w-52 bg-white border border-slate-100 shadow-xl rounded-2xl z-50 overflow-hidden py-2">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-4 pb-2">Quick Actions</p>
+                  {QUICK_ACTIONS.map(a => (
+                    <button
+                      key={a.label}
+                      onClick={() => { navigate(a.path); setShowQuickActions(false); }}
+                      className="w-full text-left px-4 py-2.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                    >
+                      <span className="text-blue-500">{a.icon}</span> {a.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          {/* Settings → navigate to settings */}
+          <button
+            onClick={() => navigate('/settings')}
+            title="Settings"
+            className="p-2.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-white hover:shadow-sm transition-all"
+          >
             <Settings className="h-4 w-4" />
           </button>
         </div>

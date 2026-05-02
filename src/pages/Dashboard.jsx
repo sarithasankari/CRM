@@ -4,93 +4,42 @@ import {
   Handshake, ClipboardList, Mail, MoreHorizontal, Loader2, AlertCircle,
   ArrowUpRight, ArrowDownRight, Activity, Zap, CheckCircle2, Clock
 } from 'lucide-react';
+import { useWebSocket } from '../context/WebSocketContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
-import { leadsApi, dealsApi, tasksApi } from '../services/api';
-
-const chartData = [
-  { name: 'Jan', actual: 4000, projected: 1000 },
-  { name: 'Feb', actual: 6000, projected: 1500 },
-  { name: 'Mar', actual: 4500, projected: 3000 },
-  { name: 'Apr', actual: 8000, projected: 2000 },
-  { name: 'May', actual: 9500, projected: 2500 },
-  { name: 'Jun', actual: 8500, projected: 3500 },
-];
-
-const miniChartData = [
-  { value: 400 }, { value: 600 }, { value: 500 }, { value: 800 }, { value: 700 }, { value: 900 }
-];
-
-const activities = [
-  { 
-    id: 1, 
-    type: 'deal', 
-    title: 'Deal Won: TechFlow Inc.', 
-    meta: 'Sarah Jenkins • 2 mins ago', 
-    badge: '+$45,000',
-    badgeColor: 'bg-emerald-50 text-emerald-600',
-    iconColor: 'bg-emerald-100 text-emerald-600',
-    icon: <Zap className="w-4 h-4" />
-  },
-  { 
-    id: 2, 
-    type: 'lead', 
-    title: 'New Enterprise Lead', 
-    meta: 'Global Logistics • 1 hour ago', 
-    badge: 'HOT',
-    badgeColor: 'bg-amber-50 text-amber-600',
-    iconColor: 'bg-amber-100 text-amber-600',
-    icon: <Target className="w-4 h-4" />
-  },
-  { 
-    id: 3, 
-    type: 'task', 
-    title: 'Task Overdue', 
-    meta: 'Contract Review • 3 hours ago', 
-    badge: 'HIGH',
-    badgeColor: 'bg-rose-50 text-rose-600',
-    iconColor: 'bg-rose-100 text-rose-600',
-    icon: <Clock className="w-4 h-4" />
-  },
-];
+import { leadsApi, dealsApi, tasksApi, analyticsApi } from '../services/api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({ leads: 0, deals: 0, revenue: 0, tasks: 0 });
   const [dealClosures, setDealClosures] = useState([]);
+  const [chartData, setChartData] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { lastMessage } = useWebSocket();
 
   useEffect(() => {
     const fetchDashboardData = async () => {
-      setIsLoading(true);
+      // Don't set isLoading if it's just a background refresh
+      if (!stats.leads) setIsLoading(true);
       try {
-        const [leadsRes, dealsRes, tasksRes] = await Promise.all([
-          leadsApi.getAll(),
-          dealsApi.getAll(),
-          tasksApi.getAll()
+        const [dashboardRes, dealsRes] = await Promise.all([
+          analyticsApi.getDashboardStats(),
+          dealsApi.getAll()
         ]);
         
-        const leads = leadsRes.results || leadsRes;
+        setStats(dashboardRes.stats);
+        setChartData(dashboardRes.chartData);
+        setActivities(dashboardRes.activities);
+
         const deals = dealsRes.results || dealsRes;
-        const tasks = tasksRes.results || tasksRes;
-
-        const totalRevenue = deals.reduce((sum, deal) => sum + parseFloat(deal.value || 0), 0);
-        const pendingTasks = tasks.filter(t => t.status !== 'Completed').length;
-
-        setStats({
-          leads: leads.length,
-          deals: deals.length,
-          revenue: totalRevenue,
-          tasks: pendingTasks
-        });
-
         setDealClosures(deals.slice(0, 5).map(deal => ({
           id: deal.id,
           company: deal.title,
           contact: deal.contact ? 'Assigned' : 'Unassigned',
           value: `$${parseFloat(deal.value || 0).toLocaleString()}`,
-          probability: deal.stage === 'won' ? 100 : deal.stage === 'lost' ? 0 : deal.stage === 'proposal' ? 75 : 50,
+          probability: deal.stage === 'Closed Won' ? 100 : deal.stage === 'Closed Lost' ? 0 : deal.stage === 'Proposal/Price Quote' ? 75 : 50,
           status: deal.stage,
-          statusColor: deal.stage === 'won' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600',
+          statusColor: deal.stage === 'Closed Won' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600',
         })));
       } catch (err) {
         setError("Failed to sync dashboard metrics");
@@ -99,7 +48,7 @@ export default function Dashboard() {
       }
     };
     fetchDashboardData();
-  }, []);
+  }, [lastMessage]);
 
   return (
     <div className="space-y-8 animate-fade-in max-w-[1600px] mx-auto pb-10">
@@ -221,7 +170,10 @@ export default function Dashboard() {
             {activities.map((item) => (
               <div key={item.id} className="flex items-start space-x-4 group cursor-pointer">
                 <div className={`p-3 ${item.iconColor} rounded-2xl shadow-sm group-hover:scale-110 transition-transform`}>
-                  {item.icon}
+                  {item.type === 'deal' && <Zap className="w-4 h-4" />}
+                  {item.type === 'lead' && <Target className="w-4 h-4" />}
+                  {item.type === 'task' && <Clock className="w-4 h-4" />}
+                  {item.type === 'meeting' && <Calendar className="w-4 h-4" />}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">

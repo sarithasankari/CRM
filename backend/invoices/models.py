@@ -1,5 +1,7 @@
 from django.db import models
+from django.conf import settings
 from quotes.models import Quote
+
 
 class Invoice(models.Model):
     STATUS_CHOICES = (
@@ -9,8 +11,19 @@ class Invoice(models.Model):
         ('overdue', 'Overdue'),
         ('cancelled', 'Cancelled'),
     )
-    
-    quote = models.ForeignKey(Quote, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices')
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='owned_invoices',
+    )
+    quote = models.ForeignKey(
+        Quote,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='invoices',
+    )
     invoice_number = models.CharField(max_length=50, unique=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')

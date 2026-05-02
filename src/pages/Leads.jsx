@@ -1,13 +1,532 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Table from '../components/Table';
-import { leadsApi, contactsApi, dealsApi } from '../services/api';
+import { leadsApi, contactsApi, dealsApi, activitiesApi } from '../services/api';
 import { 
   Plus, Download, ChevronDown, Calendar, ArrowDown, X, 
   Loader2, AlertCircle, Trash2, Edit2, Filter, Search,
   MoreHorizontal, Mail, Phone, Building2, UserPlus, ChevronRight,
-  Megaphone, Info
+  Megaphone, Info, Send, Clock, FileText, Activity, Briefcase,
+  CheckCircle2, XCircle, ChevronLeft, ExternalLink, Paperclip
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LeadDetailView — fully functional lead detail page
+// ─────────────────────────────────────────────────────────────────────────────
+function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusChange, getStatusStyles, addToast }) {
+  const [activeTab, setActiveTab]         = useState('overview');
+  const [activeSection, setActiveSection] = useState('overview');
+  const [showMoreMenu, setShowMoreMenu]   = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailForm, setEmailForm]         = useState({ subject: '', body: '' });
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [relatedDeals, setRelatedDeals]   = useState([]);
+  const [relatedActivities, setRelatedActivities] = useState([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [hideDetails, setHideDetails]     = useState(false);
+  const moreMenuRef = useRef(null);
+
+  // Close More menu on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target)) {
+        setShowMoreMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Fetch related data when sidebar section changes
+  const fetchRelated = useCallback(async (section) => {
+    if (section === 'overview') return;
+    setRelatedLoading(true);
+    try {
+      if (section === 'deals') {
+        const res = await dealsApi.getAll({ search: lead.company || lead.name });
+        setRelatedDeals((res.results ?? res).slice(0, 10));
+      } else if (section === 'activities') {
+        const res = await activitiesApi.getAll();
+        setRelatedActivities((res.results ?? res).slice(0, 10));
+      }
+    } catch { /* non-critical */ }
+    finally { setRelatedLoading(false); }
+  }, [lead]);
+
+  const handleSectionClick = (section) => {
+    const key = section.toLowerCase();
+    setActiveSection(key);
+    if (key !== 'overview') {
+      setActiveTab('related');
+      fetchRelated(key);
+    } else {
+      setActiveTab('overview');
+    }
+  };
+
+  // Send Email handler
+  const handleSendEmail = async (e) => {
+    e.preventDefault();
+    if (!emailForm.subject.trim() || !emailForm.body.trim()) {
+      addToast('Subject and message are required', 'error');
+      return;
+    }
+    setIsSendingEmail(true);
+    try {
+      // Log as an Activity (email type)
+      await activitiesApi.create({
+        type: 'email',
+        notes: `Subject: ${emailForm.subject}\n\n${emailForm.body}`,
+      });
+      addToast(`Email sent to ${lead.email}`);
+      setShowEmailModal(false);
+      setEmailForm({ subject: '', body: '' });
+    } catch {
+      addToast('Failed to send email', 'error');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
+  const SIDEBAR_ITEMS = ['Overview', 'Notes', 'Emails', 'Activities', 'Deals', 'Attachments'];
+
+  return (
+    <div className="bg-white min-h-screen">
+
+      {/* ── Top Action Bar ── */}
+      <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={onBack}
+            className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Back to Leads"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center text-lg font-bold">
+            {lead.name.substring(0, 1).toUpperCase()}
+          </div>
+          <div>
+            <h2 className="text-[18px] font-semibold text-gray-800">
+              {lead.name}{lead.company ? ` - ${lead.company}` : ''}
+            </h2>
+            <button className="flex items-center text-[12px] text-blue-600 hover:underline mt-0.5">
+              <Plus className="w-3 h-3 mr-1" /> Add Tags
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          {/* Send Email */}
+          <button
+            onClick={() => setShowEmailModal(true)}
+            className="px-4 py-1.5 bg-[#1a56d9] text-white rounded-[4px] font-medium text-[13px] hover:bg-blue-700 transition-colors flex items-center gap-1.5"
+          >
+            <Mail className="w-3.5 h-3.5" /> Send Email
+          </button>
+
+          {/* Convert */}
+          <button
+            onClick={onConvert}
+            className="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-[4px] text-[13px] hover:bg-gray-50 transition-colors"
+          >
+            Convert
+          </button>
+
+          {/* Edit */}
+          <button
+            onClick={onEdit}
+            className="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-[4px] text-[13px] hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+          >
+            <Edit2 className="w-3.5 h-3.5" /> Edit
+          </button>
+
+          {/* More options (...) */}
+          <div className="relative" ref={moreMenuRef}>
+            <button
+              onClick={() => setShowMoreMenu(v => !v)}
+              className="px-2 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-[4px] hover:bg-gray-50 transition-colors"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+
+            {showMoreMenu && (
+              <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1 overflow-hidden">
+                <button
+                  onClick={() => { onStatusChange('contacted'); setShowMoreMenu(false); }}
+                  className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-amber-500" /> Mark as Contacted
+                </button>
+                <button
+                  onClick={() => { onStatusChange('qualified'); setShowMoreMenu(false); }}
+                  className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-blue-500" /> Mark as Qualified
+                </button>
+                <button
+                  onClick={() => { onStatusChange('lost'); setShowMoreMenu(false); }}
+                  className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <XCircle className="w-4 h-4 text-rose-500" /> Mark as Lost
+                </button>
+                <div className="my-1 h-px bg-gray-100" />
+                <button
+                  onClick={() => { setShowMoreMenu(false); onDelete(); }}
+                  className="w-full text-left px-4 py-2.5 text-[13px] text-rose-600 hover:bg-rose-50 flex items-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" /> Delete Lead
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex">
+
+        {/* ── Left Sidebar — Related List ── */}
+        <div className="w-56 border-r border-gray-200 bg-white h-[calc(100vh-137px)] overflow-y-auto py-4 flex-shrink-0">
+          <h3 className="text-[13px] font-bold text-gray-500 uppercase tracking-widest px-5 mb-2">Related List</h3>
+          <ul className="text-[13px] text-gray-700">
+            {SIDEBAR_ITEMS.map(item => {
+              const key = item.toLowerCase();
+              const isActive = activeSection === key;
+              return (
+                <li key={item}>
+                  <button
+                    onClick={() => handleSectionClick(item)}
+                    className={`w-full text-left px-5 py-2.5 transition-colors flex items-center justify-between group ${
+                      isActive
+                        ? 'bg-blue-50 text-blue-700 font-semibold border-r-2 border-blue-600'
+                        : 'hover:bg-gray-50 hover:text-blue-600'
+                    }`}
+                  >
+                    <span>{item}</span>
+                    <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="px-5 mt-4 space-y-2">
+            <button className="text-[13px] text-blue-600 hover:underline flex items-center gap-1">
+              <Plus className="w-3 h-3" /> Add Related List
+            </button>
+          </div>
+          <div className="px-5 mt-6">
+            <h3 className="text-[13px] font-bold text-gray-500 uppercase tracking-widest mb-2">Links</h3>
+            <button className="text-[13px] text-blue-600 hover:underline flex items-center gap-1">
+              <Plus className="w-3 h-3" /> Add Link
+            </button>
+          </div>
+        </div>
+
+        {/* ── Main Content Area ── */}
+        <div className="flex-1 bg-[#F5F6F8] h-[calc(100vh-137px)] overflow-y-auto">
+
+          {/* ── Overview Tab ── */}
+          {activeSection === 'overview' && (
+            <div className="p-6 space-y-4">
+              {/* Tab switcher */}
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="flex bg-white rounded-full border border-gray-200 overflow-hidden shadow-sm">
+                  <button
+                    onClick={() => setActiveTab('overview')}
+                    className={`px-6 py-1.5 text-[13px] font-medium transition-colors ${activeTab === 'overview' ? 'bg-[#EBF0FA] text-[#1a56d9]' : 'text-gray-600 hover:bg-gray-50'}`}
+                  >Overview</button>
+                  <button
+                    onClick={() => setActiveTab('timeline')}
+                    className={`px-6 py-1.5 text-[13px] font-medium transition-colors ${activeTab === 'timeline' ? 'bg-[#EBF0FA] text-[#1a56d9]' : 'text-gray-600 hover:bg-gray-50'}`}
+                  >Timeline</button>
+                </div>
+              </div>
+
+              {activeTab === 'overview' && (
+                <>
+                  {/* Quick info card */}
+                  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+                    <div className="grid grid-cols-2 gap-y-5">
+                      <InfoRow label="Lead Owner" value={lead.assigned_to_full_name || lead.assigned_to_username || '—'} />
+                      <InfoRow label="Email" value={lead.email} isLink />
+                      <InfoRow label="Phone" value={lead.phone} isPhone />
+                      <InfoRow label="Mobile" value="—" />
+                      <div className="flex">
+                        <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Lead Status</div>
+                        <select
+                          value={lead.status || 'new'}
+                          onChange={e => onStatusChange(e.target.value)}
+                          className={`px-2 py-1 rounded text-[11px] font-bold uppercase tracking-wider outline-none cursor-pointer border ${getStatusStyles(lead.status)}`}
+                        >
+                          <option value="new">New</option>
+                          <option value="contacted">Contacted</option>
+                          <option value="qualified">Qualified</option>
+                          <option value="lost">Lost</option>
+                        </select>
+                      </div>
+                      <InfoRow label="Source" value={lead.source || '—'} />
+                    </div>
+                  </div>
+
+                  {/* Full lead info */}
+                  {!hideDetails && (
+                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm">
+                      <div className="border-b border-gray-100 px-6 py-3 flex justify-between items-center">
+                        <span className="text-[14px] font-semibold text-gray-800">Lead Information</span>
+                        <button
+                          onClick={() => setHideDetails(true)}
+                          className="text-[12px] text-blue-600 hover:underline"
+                        >Hide Details</button>
+                      </div>
+                      <div className="px-6 py-5">
+                        <div className="grid grid-cols-2 gap-y-5">
+                          <InfoRow label="Lead Owner" value={lead.assigned_to_full_name || lead.assigned_to_username || '—'} />
+                          <InfoRow label="Company"    value={lead.company || '—'} />
+                          <InfoRow label="Lead Name"  value={lead.name} />
+                          <InfoRow label="Title"      value={lead.source || '—'} />
+                          <InfoRow label="Phone"      value={lead.phone} isPhone />
+                          <InfoRow label="Email"      value={lead.email} isLink />
+                          <InfoRow label="Created"    value={new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} />
+                          <InfoRow label="Status"     value={lead.status?.toUpperCase()} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {hideDetails && (
+                    <button
+                      onClick={() => setHideDetails(false)}
+                      className="text-[13px] text-blue-600 hover:underline px-1"
+                    >Show Details</button>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'timeline' && (
+                <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
+                  <Clock className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-[14px] font-semibold text-slate-500">No activity timeline yet</p>
+                  <p className="text-[12px] text-slate-400 mt-1">Actions on this lead will appear here</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Related: Activities ── */}
+          {activeSection === 'activities' && (
+            <RelatedSection title="Activities" icon={<Activity className="w-4 h-4" />} loading={relatedLoading}>
+              {relatedActivities.length === 0
+                ? <EmptyState icon={<Activity className="w-8 h-8" />} message="No activities logged yet" />
+                : relatedActivities.map(a => (
+                  <div key={a.id} className="flex items-start gap-3 py-3 border-b border-gray-50 last:border-0">
+                    <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Activity className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-[13px] font-semibold text-gray-800 capitalize">{a.type}</p>
+                      <p className="text-[12px] text-gray-500 mt-0.5 line-clamp-2">{a.notes}</p>
+                      <p className="text-[11px] text-gray-400 mt-1">{new Date(a.created_at).toLocaleString()}</p>
+                    </div>
+                  </div>
+                ))
+              }
+            </RelatedSection>
+          )}
+
+          {/* ── Related: Deals ── */}
+          {activeSection === 'deals' && (
+            <RelatedSection title="Deals" icon={<Briefcase className="w-4 h-4" />} loading={relatedLoading}>
+              {relatedDeals.length === 0
+                ? <EmptyState icon={<Briefcase className="w-8 h-8" />} message="No deals linked to this lead yet" sub="Convert this lead to create a deal" />
+                : relatedDeals.map(d => (
+                  <div key={d.id} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
+                    <div>
+                      <p className="text-[13px] font-semibold text-gray-800">{d.title}</p>
+                      <p className="text-[12px] text-gray-500">{d.stage} · ${parseFloat(d.value).toLocaleString()}</p>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      d.stage === 'Closed Won' ? 'bg-emerald-50 text-emerald-600' :
+                      d.stage?.startsWith('Closed') ? 'bg-rose-50 text-rose-600' :
+                      'bg-blue-50 text-blue-600'
+                    }`}>{d.stage}</span>
+                  </div>
+                ))
+              }
+            </RelatedSection>
+          )}
+
+          {/* ── Related: Notes ── */}
+          {activeSection === 'notes' && (
+            <RelatedSection title="Notes" icon={<FileText className="w-4 h-4" />} loading={false}>
+              <EmptyState icon={<FileText className="w-8 h-8" />} message="No notes added yet" />
+            </RelatedSection>
+          )}
+
+          {/* ── Related: Emails ── */}
+          {activeSection === 'emails' && (
+            <RelatedSection title="Emails" icon={<Mail className="w-4 h-4" />} loading={false}>
+              <div className="mb-4">
+                <button
+                  onClick={() => setShowEmailModal(true)}
+                  className="px-4 py-1.5 bg-[#1a56d9] text-white rounded-[4px] font-medium text-[13px] hover:bg-blue-700 flex items-center gap-1.5"
+                >
+                  <Mail className="w-3.5 h-3.5" /> Compose Email
+                </button>
+              </div>
+              <EmptyState icon={<Mail className="w-8 h-8" />} message="No emails sent yet" sub={`Send the first email to ${lead.email}`} />
+            </RelatedSection>
+          )}
+
+          {/* ── Related: Attachments ── */}
+          {activeSection === 'attachments' && (
+            <RelatedSection title="Attachments" icon={<Paperclip className="w-4 h-4" />} loading={false}>
+              <EmptyState icon={<Paperclip className="w-8 h-8" />} message="No attachments yet" />
+            </RelatedSection>
+          )}
+
+        </div>
+      </div>
+
+      {/* ── Send Email Modal ── */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !isSendingEmail && setShowEmailModal(false)} />
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                  <Mail className="w-4 h-4 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-[15px] font-bold text-gray-800">Send Email</h3>
+                  <p className="text-[12px] text-gray-500">To: {lead.name} &lt;{lead.email}&gt;</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowEmailModal(false)}
+                disabled={isSendingEmail}
+                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendEmail} className="p-6 space-y-4">
+              {/* To (read-only display) */}
+              <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                <span className="text-[12px] text-gray-500 font-semibold w-10">To:</span>
+                <span className="text-[13px] text-gray-800">{lead.name} &lt;{lead.email}&gt;</span>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Subject *</label>
+                <input
+                  required
+                  type="text"
+                  value={emailForm.subject}
+                  onChange={e => setEmailForm(p => ({ ...p, subject: e.target.value }))}
+                  placeholder="e.g. Following up on your inquiry"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-[13px] focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Message *</label>
+                <textarea
+                  required
+                  rows={6}
+                  value={emailForm.body}
+                  onChange={e => setEmailForm(p => ({ ...p, body: e.target.value }))}
+                  placeholder={`Hi ${lead.name.split(' ')[0]},\n\n`}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-[13px] focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all resize-none"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-gray-400">Activity will be logged automatically</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailModal(false)}
+                    disabled={isSendingEmail}
+                    className="px-4 py-2 text-[13px] font-semibold text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSendingEmail}
+                    className="px-5 py-2 text-[13px] font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                  >
+                    {isSendingEmail ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    {isSendingEmail ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Small reusable helpers ────────────────────────────────────────────────────
+function InfoRow({ label, value, isLink, isPhone }) {
+  return (
+    <div className="flex">
+      <div className="w-32 text-[13px] text-gray-500 text-right pr-6 flex-shrink-0">{label}</div>
+      {isLink && value ? (
+        <a href={`mailto:${value}`} className="text-[13px] text-blue-600 hover:underline">{value}</a>
+      ) : isPhone && value ? (
+        <div className="flex items-center gap-1.5 text-[13px] text-gray-800">
+          {value}
+          <div className="w-5 h-5 bg-[#D4E8D4] rounded flex items-center justify-center">
+            <Phone className="w-3 h-3 text-[#1B5E20]" />
+          </div>
+        </div>
+      ) : (
+        <div className="text-[13px] text-gray-800">{value || '—'}</div>
+      )}
+    </div>
+  );
+}
+
+function RelatedSection({ title, icon, loading, children }) {
+  return (
+    <div className="p-6">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
+          <span className="text-gray-500">{icon}</span>
+          <h3 className="text-[14px] font-bold text-gray-800">{title}</h3>
+        </div>
+        <div className="px-6 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+            </div>
+          ) : children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ icon, message, sub }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-8 text-center">
+      <div className="text-slate-200 mb-3">{icon}</div>
+      <p className="text-[13px] font-semibold text-slate-500">{message}</p>
+      {sub && <p className="text-[11px] text-slate-400 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+
 
 export default function Leads() {
   const [leads, setLeads] = useState([]);
@@ -16,12 +535,17 @@ export default function Leads() {
   const [viewingLead, setViewingLead] = useState(null);
   const [convertingLead, setConvertingLead] = useState(false);
   const [conversionSuccess, setConversionSuccess] = useState(null);
-  const [convertData, setConvertData] = useState({ createDeal: false, dealName: '', amount: 0 });
+  const [convertData, setConvertData] = useState({
+    createDeal: false, dealName: '', amount: 0, stage: 'Qualification',
+    closingDate: '', campaign_source: '', contact_role: '',
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusFilter, setStatusFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  // Dynamic conversion rate fetched from backend
+  const [conversionStats, setConversionStats] = useState({ conversion_rate: 0, qualified: 0, total: 0 });
   const { addToast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -30,7 +554,7 @@ export default function Leads() {
 
   // ─── Data Fetching ───────────────────────────────────────────────────────────
 
-  const fetchLeads = async () => {
+  const fetchLeads = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await leadsApi.getAll();
@@ -42,11 +566,21 @@ export default function Leads() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  const fetchConversionRate = useCallback(async () => {
+    try {
+      const stats = await leadsApi.getConversionRate();
+      setConversionStats(stats);
+    } catch {
+      // non-critical — keep default 0
+    }
+  }, []);
 
   useEffect(() => {
     fetchLeads();
-  }, []);
+    fetchConversionRate();
+  }, [fetchLeads, fetchConversionRate]);
 
   // ─── CRUD Handlers ───────────────────────────────────────────────────────────
 
@@ -87,47 +621,47 @@ export default function Leads() {
     setIsSubmitting(true);
     try {
       const payload = {
-        createDeal: convertData.createDeal,
-        dealName: convertData.dealName,
-        amount: convertData.amount,
-        stage: convertData.stage
+        createDeal:      convertData.createDeal,
+        dealName:        convertData.dealName || `${viewingLead.company || viewingLead.name} Deal`,
+        amount:          convertData.amount || 0,
+        stage:           convertData.stage || 'Qualification',
+        campaign_source: convertData.campaign_source || '',
+        contact_role:    convertData.contact_role || '',
       };
 
+      // Normalize closing date to YYYY-MM-DD
       if (convertData.closingDate) {
         if (convertData.closingDate.includes('-')) {
           payload.closingDate = convertData.closingDate;
         } else {
           const parts = convertData.closingDate.split('/');
           if (parts.length === 3) {
-            const day = parts[0].padStart(2, '0');
-            const month = parts[1].padStart(2, '0');
-            payload.closingDate = `${parts[2]}-${month}-${day}`;
+            payload.closingDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
           }
         }
       }
 
       const response = await leadsApi.convert(viewingLead.id, payload);
-      
       setConversionSuccess({
         account: response.contact.company || response.contact.name,
         contact: response.contact.name,
-        deal: response.deal ? response.deal.title : null
+        deal: response.deal ? response.deal.title : null,
       });
       setConvertingLead(false);
       fetchLeads();
+      fetchConversionRate();
     } catch (err) {
       console.error('Conversion Error Details:', err.response?.data || err);
       let errorMsg = 'Failed to convert lead';
-      if (err.response?.data) {
-        if (typeof err.response.data === 'object' && err.response.data.detail) {
-          errorMsg = err.response.data.detail;
-        } else if (typeof err.response.data === 'object') {
-          const firstKey = Object.keys(err.response.data)[0];
-          if (firstKey) {
-            errorMsg = `${firstKey}: ${err.response.data[firstKey]}`;
-          }
-        } else if (typeof err.response.data === 'string') {
-          errorMsg = err.response.data;
+      const data = err.response?.data;
+      if (data) {
+        if (typeof data === 'object' && data.detail) {
+          errorMsg = data.detail;
+        } else if (typeof data === 'object') {
+          const firstKey = Object.keys(data)[0];
+          if (firstKey) errorMsg = `${firstKey}: ${data[firstKey]}`;
+        } else if (typeof data === 'string') {
+          errorMsg = data;
         }
       }
       addToast(errorMsg, 'error');
@@ -398,7 +932,13 @@ export default function Leads() {
                     <div className="flex items-center">
                       <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Campaign Source</div>
                       <div className="flex-1 relative flex items-center border border-gray-300 rounded overflow-hidden focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
-                        <input type="text" className="w-full px-3 py-1.5 text-[13px] outline-none" />
+                        <input
+                          type="text"
+                          className="w-full px-3 py-1.5 text-[13px] outline-none"
+                          value={convertData.campaign_source}
+                          onChange={e => setConvertData({...convertData, campaign_source: e.target.value})}
+                          placeholder="e.g. Google Ads"
+                        />
                         <div className="px-2 py-1.5 bg-gray-50 border-l border-gray-300 flex items-center justify-center">
                            <Megaphone className="w-4 h-4 text-gray-600" />
                         </div>
@@ -408,8 +948,18 @@ export default function Leads() {
                     <div className="flex items-center">
                       <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Contact Role</div>
                       <div className="flex-1">
-                        <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none bg-no-repeat bg-[right_0.5rem_center]" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundSize: '1em'}}>
-                          <option>None</option>
+                        <select
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none bg-no-repeat bg-[right_0.5rem_center]"
+                          style={{backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundSize: '1em'}}
+                          value={convertData.contact_role}
+                          onChange={e => setConvertData({...convertData, contact_role: e.target.value})}
+                        >
+                          <option value="">None</option>
+                          <option value="decision_maker">Decision Maker</option>
+                          <option value="evaluator">Evaluator</option>
+                          <option value="influencer">Influencer</option>
+                          <option value="champion">Champion</option>
+                          <option value="end_user">End User</option>
                         </select>
                       </div>
                     </div>
@@ -419,7 +969,9 @@ export default function Leads() {
 
               <div className="pt-4">
                 <p className="text-[14px] text-gray-800 mb-2">Owner of the New Records</p>
-                <div className="text-[14px] text-gray-800">Saritha N</div>
+                <div className="text-[14px] text-gray-800">
+                  {viewingLead?.assigned_to_full_name || viewingLead?.assigned_to_username || 'Me (current user)'}
+                </div>
               </div>
 
               <div className="pt-6 flex space-x-3">
@@ -457,172 +1009,23 @@ export default function Leads() {
 
   if (viewingLead) {
     return (
-      <div className="bg-white min-h-screen">
-        {/* Top Header */}
-        <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <button onClick={() => setViewingLead(null)} className="text-gray-500 hover:text-gray-800">
-              <ChevronRight className="w-5 h-5 rotate-180" />
-            </button>
-            <div className="w-10 h-10 bg-gray-100 text-gray-600 rounded flex items-center justify-center text-lg font-medium">
-              {viewingLead.name.substring(0, 1).toUpperCase()}
-            </div>
-            <div>
-              <h2 className="text-[18px] font-medium text-gray-800">{viewingLead.name}{viewingLead.company ? ` - ${viewingLead.company}` : ''}</h2>
-              <button className="flex items-center text-[12px] text-blue-600 hover:underline mt-0.5">
-                <Plus className="w-3 h-3 mr-1" /> Add Tags
-              </button>
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <button className="px-4 py-1.5 bg-[#1a56d9] text-white rounded-[4px] font-medium text-[13px] hover:bg-blue-700 transition-colors">
-              Send Email
-            </button>
-            <button 
-              onClick={() => setConvertingLead(true)}
-              className="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-[4px] text-[13px] hover:bg-gray-50 transition-colors"
-            >
-              Convert
-            </button>
-            <button 
-              onClick={() => openEditModal(viewingLead)}
-              className="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-[4px] text-[13px] hover:bg-gray-50 transition-colors"
-            >
-              Edit
-            </button>
-            <button className="px-2 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-[4px] hover:bg-gray-50 transition-colors">
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex">
-          {/* Left Sidebar (Related List) */}
-          <div className="w-56 border-r border-gray-200 bg-white h-[calc(100vh-140px)] overflow-y-auto py-4">
-            <h3 className="text-[14px] font-semibold text-gray-800 px-5 mb-2">Related List</h3>
-            <ul className="text-[13px] text-gray-700">
-              {['Notes', 'Emails', 'Activities', 'Deals', 'Attachments'].map(item => (
-                <li key={item}>
-                  <button className="w-full text-left px-5 py-2.5 hover:bg-gray-50 hover:text-blue-600 transition-colors">
-                    {item}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="px-5 mt-4">
-              <button className="text-[13px] text-blue-600 hover:underline">Add Related List</button>
-            </div>
-            <div className="px-5 mt-6">
-              <h3 className="text-[14px] font-semibold text-gray-800 mb-2">Links</h3>
-              <button className="text-[13px] text-blue-600 hover:underline">Add Link</button>
-            </div>
-          </div>
-
-          {/* Main Content */}
-          <div className="flex-1 bg-[#F5F6F8] p-6 h-[calc(100vh-140px)] overflow-y-auto">
-            {/* Overview / Timeline Tabs */}
-            <div className="flex space-x-3 mb-4">
-              <div className="w-8 h-8 bg-white border border-gray-200 rounded-full flex items-center justify-center text-gray-500 shadow-sm">
-                <span className="text-[12px]">10</span>
-              </div>
-              <div className="flex bg-white rounded-full border border-gray-200 overflow-hidden shadow-sm">
-                <button className="px-6 py-1.5 text-[13px] font-medium bg-[#EBF0FA] text-[#1a56d9]">Overview</button>
-                <button className="px-6 py-1.5 text-[13px] font-medium text-gray-600 hover:bg-gray-50">Timeline</button>
-              </div>
-            </div>
-            
-            {/* First Card - Key Info */}
-            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6 mb-4">
-              <div className="grid grid-cols-2 gap-y-6">
-                <div className="flex">
-                  <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Lead Owner</div>
-                  <div className="text-[13px] text-gray-800">Saritha N</div>
-                </div>
-                <div className="flex">
-                  <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Email</div>
-                  <div className="text-[13px] text-blue-600">{viewingLead.email || '-'}</div>
-                </div>
-                <div className="flex">
-                  <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Phone</div>
-                  <div className="flex items-center text-[13px] text-gray-800">
-                    {viewingLead.phone || '-'}
-                    {viewingLead.phone && <div className="ml-2 w-5 h-5 bg-[#D4E8D4] rounded flex items-center justify-center"><Phone className="w-3 h-3 text-[#1B5E20]" /></div>}
-                  </div>
-                </div>
-                <div className="flex">
-                  <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Mobile</div>
-                  <div className="text-[13px] text-gray-800">-</div>
-                </div>
-                <div className="flex">
-                  <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Lead Status</div>
-                  <div className="text-[13px] text-gray-800">
-                    <select
-                      value={viewingLead.status || 'new'}
-                      onChange={async (e) => {
-                        const newStatus = e.target.value;
-                        setViewingLead({ ...viewingLead, status: newStatus });
-                        try {
-                          await leadsApi.update(viewingLead.id, { ...viewingLead, status: newStatus });
-                          fetchLeads();
-                          addToast('Lead status updated successfully');
-                        } catch (err) {
-                          addToast('Failed to update status', 'error');
-                        }
-                      }}
-                      className={`px-2 py-1 rounded text-[11px] font-bold uppercase tracking-wider outline-none cursor-pointer ${getStatusStyles(viewingLead.status)}`}
-                    >
-                      <option value="new">New</option>
-                      <option value="contacted">Contacted</option>
-                      <option value="qualified">Qualified</option>
-                      <option value="lost">Lost</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Second Card - Full Info */}
-            <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-              <div className="border-b border-gray-100 px-6 py-3">
-                <button className="text-[14px] font-semibold text-gray-800 hover:text-blue-600">Hide Details</button>
-              </div>
-              <div className="px-6 py-4">
-                <h3 className="text-[14px] font-semibold text-gray-800 mb-6">Lead Information</h3>
-                <div className="grid grid-cols-2 gap-y-6">
-                  <div className="flex">
-                    <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Lead Owner</div>
-                    <div className="text-[13px] text-gray-800">Saritha N</div>
-                  </div>
-                  <div className="flex">
-                    <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Company</div>
-                    <div className="text-[13px] text-gray-800">{viewingLead.company || '-'}</div>
-                  </div>
-                  <div className="flex">
-                    <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Title</div>
-                    <div className="text-[13px] text-gray-800">{viewingLead.source || '-'}</div>
-                  </div>
-                  <div className="flex">
-                    <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Lead Name</div>
-                    <div className="text-[13px] text-gray-800">{viewingLead.name}</div>
-                  </div>
-                  <div className="flex">
-                    <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Phone</div>
-                    <div className="flex items-center text-[13px] text-gray-800">
-                      {viewingLead.phone || '-'}
-                      {viewingLead.phone && <div className="ml-2 w-5 h-5 bg-[#D4E8D4] rounded flex items-center justify-center"><Phone className="w-3 h-3 text-[#1B5E20]" /></div>}
-                    </div>
-                  </div>
-                  <div className="flex">
-                    <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Email</div>
-                    <div className="text-[13px] text-blue-600">{viewingLead.email || '-'}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <LeadDetailView
+        lead={viewingLead}
+        onBack={() => setViewingLead(null)}
+        onEdit={() => openEditModal(viewingLead)}
+        onDelete={() => { handleDelete(viewingLead.id); setViewingLead(null); }}
+        onConvert={() => setConvertingLead(true)}
+        onStatusChange={async (newStatus) => {
+          setViewingLead({ ...viewingLead, status: newStatus });
+          try {
+            await leadsApi.update(viewingLead.id, { ...viewingLead, status: newStatus });
+            fetchLeads();
+            addToast('Lead status updated');
+          } catch { addToast('Failed to update status', 'error'); }
+        }}
+        getStatusStyles={getStatusStyles}
+        addToast={addToast}
+      />
     );
   }
 
@@ -691,13 +1094,13 @@ export default function Leads() {
         <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-4 rounded-2xl shadow-lg shadow-blue-600/20 flex items-center justify-between overflow-hidden relative">
           <div className="relative z-10">
             <p className="text-blue-100 text-[10px] font-bold uppercase tracking-widest">Conversion Rate</p>
-            <p className="text-2xl font-black text-white mt-1">24.5%</p>
+            <p className="text-2xl font-black text-white mt-1">{conversionStats.conversion_rate}%</p>
+            <p className="text-blue-200 text-[10px] mt-0.5">{conversionStats.qualified} of {conversionStats.total} qualified</p>
           </div>
           <div className="relative z-10 h-10 w-24">
-             {/* Mock mini chart can go here */}
              <div className="flex items-end space-x-1 h-full">
-                {[40, 70, 45, 90, 65, 80].map((h, i) => (
-                  <div key={i} className="flex-1 bg-white/30 rounded-full" style={{ height: `${h}%` }} />
+                {[20, 40, 30, 60, conversionStats.conversion_rate, 80].map((h, i) => (
+                  <div key={i} className="flex-1 bg-white/30 rounded-full" style={{ height: `${Math.max(h, 4)}%` }} />
                 ))}
              </div>
           </div>

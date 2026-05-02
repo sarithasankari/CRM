@@ -9,40 +9,34 @@ import {
   ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 
-const forecastData = [
-  { name: 'JAN', actual: 4200, forecast: 5000 },
-  { name: 'FEB', actual: 4800, forecast: 5500 },
-  { name: 'MAR', actual: 4500, forecast: 4800 },
-  { name: 'APR', actual: 6800, forecast: 7500 },
-  { name: 'MAY', actual: 8500, forecast: 9000 },
-  { name: 'JUN', actual: 9200, forecast: 8500 },
-];
-
-const teamData = [
-  { 
-    id: 1, name: 'Marcus Thorne', role: 'Enterprise Account Manager', 
-    deals: 24, revenue: '$342,000', winRate: 78, 
-    trend: 'up', trendColor: 'text-emerald-500' 
-  },
-  { 
-    id: 2, name: 'Sarah Jenkins', role: 'Senior Sales Associate', 
-    deals: 19, revenue: '$285,500', winRate: 64, 
-    trend: 'up', trendColor: 'text-emerald-500' 
-  },
-  { 
-    id: 3, name: 'David Chen', role: 'Mid-Market Specialist', 
-    deals: 15, revenue: '$198,200', winRate: 52, 
-    trend: 'flat', trendColor: 'text-slate-300' 
-  },
-  { 
-    id: 4, name: 'Elena Rodriguez', role: 'Sales Development Rep', 
-    deals: 12, revenue: '$145,000', winRate: 41, 
-    trend: 'down', trendColor: 'text-rose-500' 
-  },
-];
+import { analyticsApi } from '../services/api';
 
 export default function Analytics() {
   const [timeframe, setTimeframe] = useState('Monthly');
+  const [forecastData, setForecastData] = useState([]);
+  const [teamData, setTeamData] = useState([]);
+  const [kpis, setKpis] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  React.useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const [dashStats, teamStats] = await Promise.all([
+          analyticsApi.getDashboardStats(),
+          analyticsApi.getTeamPerformance()
+        ]);
+        setForecastData(dashStats.chartData || []);
+        setKpis(dashStats.kpis || []);
+        setTeamData(teamStats || []);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, [timeframe]);
 
   const TrendIcon = ({ type, className }) => {
     if (type === 'up') return <TrendingUp className={className} />;
@@ -81,17 +75,21 @@ export default function Analytics() {
       </div>
 
       {/* High-Level KPIs */}
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin mb-4" />
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Aggregating Data...</p>
+        </div>
+      ) : (
+        <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {[
-          { label: 'Conversion Rate', value: '24.8%', trend: '+12.5%', icon: Zap, color: 'blue' },
-          { label: 'Avg Deal Size', value: '$14,200', trend: '+8.2%', icon: DollarSign, color: 'emerald' },
-          { label: 'Cycle Velocity', value: '18 Days', trend: '-4 Days', icon: Clock, color: 'amber' },
-          { label: 'Win Ratio', value: '62.4%', trend: '+3.1%', icon: Award, color: 'indigo' }
-        ].map((kpi, i) => (
+        {kpis.map((kpi, i) => {
+          const IconComponent = [Zap, DollarSign, Clock, Award][i % 4];
+          return (
           <div key={i} className="glass-card p-8 group hover:-translate-y-1 transition-all duration-300">
             <div className="flex justify-between items-start">
               <div className={`p-4 bg-${kpi.color}-50 rounded-2xl text-${kpi.color}-600 border border-${kpi.color}-100 group-hover:scale-110 transition-transform`}>
-                <kpi.icon className="w-6 h-6" />
+                <IconComponent className="w-6 h-6" />
               </div>
               <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
                 kpi.trend.includes('+') ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
@@ -104,7 +102,8 @@ export default function Analytics() {
               <h3 className="text-3xl font-black text-slate-900 mt-1">{kpi.value}</h3>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Main Insights Grid */}
@@ -241,6 +240,8 @@ export default function Analytics() {
           </table>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

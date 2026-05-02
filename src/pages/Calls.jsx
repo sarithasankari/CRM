@@ -1,36 +1,111 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Plus, PhoneCall, PhoneForwarded, PhoneMissed, Clock, 
-  User, X, ChevronRight, Activity, Zap, Filter, Search,
-  PhoneOutgoing, PhoneIncoming, MoreHorizontal
+  Plus, PhoneCall, Clock, X, Zap, Filter, Search,
+  PhoneOutgoing, PhoneIncoming, MoreHorizontal, AlertCircle, Loader2
 } from 'lucide-react';
+import { callsApi } from '../services/api';
+import { useToast } from '../context/ToastContext';
 
-const initialCalls = [
-  { id: 1, type: 'Outbound', contact: 'Sarah Miller', duration: '15:20', outcome: 'Interested', date: 'Oct 23, 10:00 AM', company: 'Miller Systems' },
-  { id: 2, type: 'Inbound', contact: 'Jason Bourne', duration: '05:45', outcome: 'Follow-up Req', date: 'Oct 23, 2:30 PM', company: 'Treadstone Inc.' },
-  { id: 3, type: 'Scheduled', contact: 'Acme Corp', duration: 'Est. 30:00', outcome: 'Pending', date: 'Oct 25, 1:00 PM', company: 'Acme Global' },
-];
+const EMPTY_FORM = { 
+  type: 'outbound', 
+  contact_name: '', 
+  company: '', 
+  duration: '', 
+  outcome: 'connected', 
+  call_date: new Date().toISOString().slice(0, 16),
+  notes: '' 
+};
 
 export default function Calls() {
-  const [calls, setCalls] = useState(initialCalls);
+  const [calls, setCalls] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ type: 'Outbound', contact: '', duration: '', outcome: 'Connected', date: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const { addToast } = useToast();
 
-  const handleAddCall = (e) => {
+  const fetchCalls = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await callsApi.getAll();
+      setCalls(data.results || data);
+    } catch (err) {
+      setError('Failed to sync call registry.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchCalls(); }, []);
+
+  const handleAddCall = async (e) => {
     e.preventDefault();
-    const newCall = { id: Date.now(), ...formData, company: 'New Prospect' };
-    setCalls([newCall, ...calls]);
-    setIsModalOpen(false);
-    setFormData({ type: 'Outbound', contact: '', duration: '', outcome: 'Connected', date: '' });
+    setIsSubmitting(true);
+    try {
+      await callsApi.create(formData);
+      addToast('Call logged successfully');
+      setIsModalOpen(false);
+      setFormData(EMPTY_FORM);
+      fetchCalls();
+    } catch (err) {
+      addToast('Failed to log call', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Remove this call log?')) return;
+    try {
+      await callsApi.delete(id);
+      addToast('Call log removed');
+      fetchCalls();
+    } catch {
+      addToast('Delete failed', 'error');
+    }
   };
 
   const getCallIcon = (type) => {
-    switch(type) {
-      case 'Outbound': return <PhoneOutgoing className="w-5 h-5 text-blue-600" />;
-      case 'Inbound': return <PhoneIncoming className="w-5 h-5 text-emerald-600" />;
-      case 'Scheduled': return <Clock className="w-5 h-5 text-amber-500" />;
+    switch (type) {
+      case 'outbound': return <PhoneOutgoing className="w-5 h-5 text-blue-600" />;
+      case 'inbound': return <PhoneIncoming className="w-5 h-5 text-emerald-600" />;
+      case 'scheduled': return <Clock className="w-5 h-5 text-amber-500" />;
       default: return <PhoneCall className="w-5 h-5 text-slate-400" />;
     }
+  };
+
+  const getCallBg = (type) => {
+    switch (type) {
+      case 'outbound': return 'bg-blue-50';
+      case 'inbound': return 'bg-emerald-50';
+      case 'scheduled': return 'bg-amber-50';
+      default: return 'bg-slate-50';
+    }
+  };
+
+  const getOutcomeBadge = (outcome) => {
+    const map = {
+      interested: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+      pending: 'bg-amber-50 text-amber-600 border-amber-100',
+      connected: 'bg-blue-50 text-blue-600 border-blue-100',
+      follow_up: 'bg-purple-50 text-purple-600 border-purple-100',
+      voicemail: 'bg-slate-50 text-slate-500 border-slate-100',
+      not_interested: 'bg-rose-50 text-rose-600 border-rose-100',
+    };
+    return map[outcome] || 'bg-slate-50 text-slate-400 border-slate-100';
+  };
+
+  const filtered = calls.filter(c =>
+    c.contact_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.company?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const formatDate = (dt) => {
+    if (!dt) return '—';
+    return new Date(dt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   return (
@@ -39,14 +114,24 @@ export default function Calls() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-           <div className="flex items-center space-x-2 mb-1">
-             <PhoneCall className="w-5 h-5 text-blue-600" />
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Activities</span>
+          <div className="flex items-center space-x-2 mb-1">
+            <PhoneCall className="w-5 h-5 text-blue-600" />
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Activities</span>
           </div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Calls</h2>
         </div>
         
         <div className="flex items-center space-x-3">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+            <input 
+              type="text"
+              placeholder="Search calls..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all shadow-sm"
+            />
+          </div>
           <button className="p-2.5 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
             <Filter className="w-4 h-4" />
           </button>
@@ -55,73 +140,93 @@ export default function Calls() {
             className="inline-flex items-center px-6 py-2.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
           >
             <Plus className="mr-2 w-4 h-4" />
-            Add Call
+            Log Call
           </button>
         </div>
       </div>
 
-      {/* Main Registry List */}
-      <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden">
-        <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Call Registry</h3>
-           <div className="flex items-center space-x-2">
-              <div className="flex -space-x-1">
-                 {[1,2,3].map(i => (
-                    <div key={i} className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white" />
-                 ))}
-              </div>
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Activity</span>
-           </div>
-        </div>
-        
-        <ul className="divide-y divide-slate-50">
-          {calls.map(call => (
-            <li key={call.id} className="px-8 py-6 hover:bg-slate-50/50 transition-all group flex items-center">
-              <div className={`flex-shrink-0 p-4 rounded-2xl group-hover:scale-110 transition-transform ${
-                 call.type === 'Inbound' ? 'bg-emerald-50' : 
-                 call.type === 'Outbound' ? 'bg-blue-50' : 'bg-amber-50'
-              }`}>
-                {getCallIcon(call.type)}
-              </div>
-              
-              <div className="ml-6 flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                <div className="col-span-1">
-                   <h4 className="text-sm font-black text-slate-900">{call.contact}</h4>
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{call.company}</p>
-                </div>
-                
-                <div className="col-span-1">
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration</p>
-                   <div className="flex items-center text-sm font-bold text-slate-700">
-                      <Clock className="w-3.5 h-3.5 mr-2 text-slate-300" />
-                      {call.duration}
-                   </div>
-                </div>
-
-                <div className="col-span-1">
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Timestamp</p>
-                   <div className="text-sm font-bold text-slate-700">{call.date}</div>
-                </div>
-
-                <div className="col-span-1 flex items-center justify-between">
-                   <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                     call.outcome === 'Interested' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                     call.outcome === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                     'bg-blue-50 text-blue-600 border border-blue-100'
-                   }`}>
-                     {call.outcome}
-                   </span>
-                   <button className="p-2 text-slate-300 hover:text-slate-900 transition-colors">
-                      <MoreHorizontal className="w-5 h-5" />
-                   </button>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Total Logged', value: calls.length, color: 'text-blue-600 bg-blue-50' },
+          { label: 'Outbound', value: calls.filter(c => c.type === 'outbound').length, color: 'text-slate-900 bg-slate-50' },
+          { label: 'Interested', value: calls.filter(c => c.outcome === 'interested').length, color: 'text-emerald-600 bg-emerald-50' },
+        ].map((stat, i) => (
+          <div key={i} className="bg-white rounded-[24px] border border-slate-200 shadow-sm p-6">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
+            <h4 className={`text-3xl font-black mt-1 px-3 py-1 rounded-xl w-fit ${stat.color}`}>{stat.value}</h4>
+          </div>
+        ))}
       </div>
 
-      {/* Log Modal */}
+      {/* Call Registry */}
+      <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[300px]">
+        <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Call Registry</h3>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filtered.length} records</span>
+        </div>
+
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-64">
+            <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
+            <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Loading Call Registry...</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center p-8">
+            <AlertCircle className="w-10 h-10 text-rose-500 mb-4" />
+            <p className="text-slate-500 font-medium">{error}</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center p-8">
+            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+              <PhoneCall className="w-8 h-8 text-slate-300" />
+            </div>
+            <h3 className="text-lg font-black text-slate-900">No calls logged</h3>
+            <p className="text-slate-400 text-sm mt-1">Log your first call interaction to populate this registry.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-slate-50">
+            {filtered.map(call => (
+              <li key={call.id} className="px-8 py-6 hover:bg-slate-50/50 transition-all group flex items-center">
+                <div className={`flex-shrink-0 p-4 rounded-2xl group-hover:scale-110 transition-transform ${getCallBg(call.type)}`}>
+                  {getCallIcon(call.type)}
+                </div>
+                
+                <div className="ml-6 flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900">{call.contact_name}</h4>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{call.company || '—'}</p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration</p>
+                    <div className="flex items-center text-sm font-bold text-slate-700">
+                      <Clock className="w-3.5 h-3.5 mr-2 text-slate-300" />
+                      {call.duration || '—'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Timestamp</p>
+                    <div className="text-sm font-bold text-slate-700">{formatDate(call.call_date)}</div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${getOutcomeBadge(call.outcome)}`}>
+                      {call.outcome_display || call.outcome}
+                    </span>
+                    <button onClick={() => handleDelete(call.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
+                      <MoreHorizontal className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Log Call Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setIsModalOpen(false)} />
@@ -141,37 +246,56 @@ export default function Calls() {
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Protocol Type</label>
                   <select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} className="input-field appearance-none bg-white">
-                    <option>Outbound</option>
-                    <option>Inbound</option>
-                    <option>Scheduled</option>
+                    <option value="outbound">Outbound</option>
+                    <option value="inbound">Inbound</option>
+                    <option value="scheduled">Scheduled</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Target Subject *</label>
-                  <input required type="text" value={formData.contact} onChange={e => setFormData({...formData, contact: e.target.value})} className="input-field" placeholder="Full Name" />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Interaction Outcome</label>
+                  <select value={formData.outcome} onChange={e => setFormData({...formData, outcome: e.target.value})} className="input-field appearance-none bg-white">
+                    <option value="connected">Connected</option>
+                    <option value="voicemail">Voicemail</option>
+                    <option value="interested">Interested</option>
+                    <option value="not_interested">Not Interested</option>
+                    <option value="follow_up">Follow-up Required</option>
+                    <option value="pending">Pending</option>
+                  </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Registry Duration</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Target Subject *</label>
+                  <input required type="text" value={formData.contact_name} onChange={e => setFormData({...formData, contact_name: e.target.value})} className="input-field" placeholder="Full Name" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Company</label>
+                  <input type="text" value={formData.company} onChange={e => setFormData({...formData, company: e.target.value})} className="input-field" placeholder="Acme Corp" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Duration</label>
                   <input type="text" value={formData.duration} onChange={e => setFormData({...formData, duration: e.target.value})} className="input-field" placeholder="e.g. 15:00" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Sync Timestamp</label>
-                  <input type="text" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="input-field" placeholder="e.g. Oct 25, 10:00 AM" />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Timestamp *</label>
+                  <input required type="datetime-local" value={formData.call_date} onChange={e => setFormData({...formData, call_date: e.target.value})} className="input-field" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Interaction Outcome</label>
-                <input type="text" value={formData.outcome} onChange={e => setFormData({...formData, outcome: e.target.value})} className="input-field" placeholder="e.g. Connected / Voicemail" />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Notes</label>
+                <textarea rows="2" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className="input-field py-3 resize-none" placeholder="Optional interaction notes..." />
               </div>
 
-              <div className="pt-8 mt-4 border-t border-slate-50 flex justify-end space-x-3">
+              <div className="pt-4 mt-2 border-t border-slate-50 flex justify-end space-x-3">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
-                <button type="submit" className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
-                   <Zap className="w-4 h-4 mr-2 fill-current" /> Save Interaction
+                <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-3" />}
+                  <Zap className="w-4 h-4 mr-2 fill-current" /> Save Interaction
                 </button>
               </div>
             </form>

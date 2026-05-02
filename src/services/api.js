@@ -125,9 +125,19 @@ export const leadsApi = {
   convert: async (id, data) => {
     const response = await api.post(`/leads/${id}/convert/`, data);
     return response.data;
-  }
+  },
+  getConversionRate: async () => {
+    const response = await api.get('/leads/conversion-rate/');
+    return response.data;
+  },
 };
-export const dealsApi = createResource('deals');
+export const dealsApi = {
+  ...createResource('deals'),
+  search: async (query) => {
+    const response = await api.get('/deals/', { params: { search: query } });
+    return response.data;
+  },
+};
 export const tasksApi = createResource('tasks');
 export const contactsApi = createResource('contacts');
 export const activitiesApi = createResource('activities');
@@ -138,5 +148,19 @@ export const quotesApi = createResource('quotes');
 export const invoicesApi = createResource('invoices');
 export const casesApi = createResource('cases');
 export const usersApi = createResource('users');
+export const meetingsApi = createResource('meetings');
+export const callsApi = createResource('calls');
+export const campaignsApi = createResource('campaigns');
+
+export const analyticsApi = {
+  getDashboardStats: async () => {
+    const response = await api.get('/analytics/dashboard/');
+    return response.data;
+  },
+  getTeamPerformance: async () => {
+    const response = await api.get('/analytics/team/');
+    return response.data;
+  }
+};
 
 export default api;

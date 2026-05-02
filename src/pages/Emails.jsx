@@ -1,80 +1,98 @@
-import React, { useState } from 'react';
-import Table from '../components/Table';
-import { emailsData } from '../data/dummy';
+import React, { useState, useEffect } from 'react';
 import { 
-  Mail, Edit3, Send, ChevronRight, Search, 
-  Filter, MoreHorizontal, Inbox, ExternalLink, 
-  Trash2, X, Zap, ArrowUpRight
+  Mail, Edit3, Send, Search, 
+  Inbox, Loader2,
+  Trash2, X, Zap, AlertCircle, CheckCircle
 } from 'lucide-react';
+import { activitiesApi, contactsApi } from '../services/api';
+import { useToast } from '../context/ToastContext';
+
+const EMPTY_FORM = { 
+  to_email: '', 
+  subject: '', 
+  body: '',
+  contact_id: '',
+};
 
 export default function Emails() {
+  const [emails, setEmails] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [isComposing, setIsComposing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const { addToast } = useToast();
 
-  const columns = [
-    { 
-      header: 'Recipient Registry', 
-      accessor: 'to',
-      render: (row) => (
-        <div className="flex items-center">
-          <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 mr-4 group-hover:scale-110 transition-transform">
-             <Mail className="w-5 h-5" />
-          </div>
-          <div className="flex flex-col">
-             <span className="text-sm font-black text-slate-900 group-hover:text-blue-600 transition-colors">{row.to}</span>
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Primary Contact</span>
-          </div>
-        </div>
-      )
-    },
-    { 
-      header: 'Communication Subject', 
-      accessor: 'subject',
-      render: (row) => (
-        <div className="flex flex-col">
-          <span className="text-sm font-bold text-slate-900 line-clamp-1">{row.subject}</span>
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Template: Follow-Up Protocol</span>
-        </div>
-      )
-    },
-    { 
-      header: 'Registry Timestamp', 
-      accessor: 'date',
-      render: (row) => (
-        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">{row.date}</span>
-      )
-    },
-    { 
-      header: 'Velocity State', 
-      accessor: 'status',
-      render: (row) => {
-        const status = row.status?.toLowerCase();
-        let colors = 'bg-slate-50 text-slate-400 border-slate-100';
-        if (status === 'opened') colors = 'bg-blue-50 text-blue-600 border-blue-100';
-        if (status === 'clicked') colors = 'bg-emerald-50 text-emerald-600 border-emerald-100';
-
-        return (
-          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center w-fit ${colors}`}>
-            <Zap className={`w-3 h-3 mr-1.5 ${status === 'clicked' ? 'fill-emerald-500' : ''}`} /> {row.status}
-          </span>
-        );
-      }
-    },
-    {
-      header: '',
-      accessor: 'actions',
-      render: () => (
-        <div className="flex justify-end space-x-2">
-          <button className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
-            <ExternalLink className="w-4 h-4" />
-          </button>
-          <button className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      )
+  const fetchData = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [emailsRes, contactsRes] = await Promise.all([
+        activitiesApi.getAll({ type: 'email' }),
+        contactsApi.getAll(),
+      ]);
+      setEmails(emailsRes.results || emailsRes);
+      setContacts(contactsRes.results || contactsRes);
+    } catch (err) {
+      setError('Failed to load email registry.');
+    } finally {
+      setIsLoading(false);
     }
-  ];
+  };
+
+  useEffect(() => { fetchData(); }, []);
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!formData.contact_id) {
+      addToast('Please select a contact', 'error');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        type: 'email',
+        notes: `TO: ${formData.to_email}\nSUBJECT: ${formData.subject}\n\n${formData.body}`,
+      };
+      await activitiesApi.create(payload);
+      addToast('Email logged successfully');
+      setIsComposing(false);
+      setFormData(EMPTY_FORM);
+      fetchData();
+    } catch (err) {
+      addToast('Failed to log email', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Remove this email log?')) return;
+    try {
+      await activitiesApi.delete(id);
+      addToast('Email log removed');
+      fetchData();
+    } catch {
+      addToast('Delete failed', 'error');
+    }
+  };
+
+  const parseEmailNotes = (notes) => {
+    if (!notes) return { to: '—', subject: '—', body: '' };
+    const lines = notes.split('\n');
+    const to = lines[0]?.replace('TO: ', '') || '—';
+    const subject = lines[1]?.replace('SUBJECT: ', '') || '—';
+    const body = lines.slice(3).join('\n');
+    return { to, subject, body };
+  };
+
+  const filtered = emails.filter(e => {
+    const parsed = parseEmailNotes(e.notes);
+    return parsed.to.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           parsed.subject.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   return (
     <div className="space-y-8 animate-fade-in max-w-[1400px] mx-auto pb-10">
@@ -82,9 +100,9 @@ export default function Emails() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-           <div className="flex items-center space-x-2 mb-1">
-             <Inbox className="w-5 h-5 text-blue-600" />
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Communication</span>
+          <div className="flex items-center space-x-2 mb-1">
+            <Inbox className="w-5 h-5 text-blue-600" />
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Communication</span>
           </div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Emails</h2>
         </div>
@@ -110,19 +128,79 @@ export default function Emails() {
         </div>
       </div>
 
-      {/* Main Table Content */}
+      {/* Main Content */}
       <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px]">
         <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Transmission Registry</h3>
-           <div className="flex items-center space-x-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-              <span>Delivery Success:</span>
-              <span className="text-emerald-500">99.9% Optimal</span>
-           </div>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Transmission Registry</h3>
+          <div className="flex items-center space-x-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            <span>Total:</span>
+            <span className="text-blue-600">{filtered.length}</span>
+          </div>
         </div>
-        <Table columns={columns} data={emailsData} />
+
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-64">
+            <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
+            <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Loading Email Registry...</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center p-8">
+            <AlertCircle className="w-10 h-10 text-rose-500 mb-4" />
+            <p className="text-slate-500 font-medium">{error}</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center p-8">
+            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+              <Mail className="w-8 h-8 text-slate-300" />
+            </div>
+            <h3 className="text-lg font-black text-slate-900">No emails logged</h3>
+            <p className="text-slate-400 text-sm mt-1 font-medium">Compose and log your first email communication.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {filtered.map((email) => {
+              const { to, subject, body } = parseEmailNotes(email.notes);
+              return (
+                <div key={email.id} className="px-8 py-6 hover:bg-slate-50/50 transition-all group flex items-center">
+                  <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 mr-6 group-hover:scale-110 transition-transform flex-shrink-0">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 items-center min-w-0">
+                    <div className="min-w-0">
+                      <span className="text-sm font-black text-slate-900 group-hover:text-blue-600 transition-colors block truncate">{to}</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5 block">Primary Contact</span>
+                    </div>
+                    
+                    <div className="min-w-0">
+                      <span className="text-sm font-bold text-slate-900 block truncate">{subject}</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5 block">Email Protocol</span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          {email.created_at ? new Date(email.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                        </span>
+                        <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 text-[10px] font-black uppercase tracking-widest flex items-center">
+                          <Zap className="w-3 h-3 mr-1.5" /> Sent
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => handleDelete(email.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Broadcast Composer Modal */}
+      {/* Compose Email Modal */}
       {isComposing && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setIsComposing(false)} />
@@ -137,39 +215,55 @@ export default function Emails() {
               </button>
             </div>
             
-            <div className="p-8 space-y-6">
+            <form onSubmit={handleSend} className="p-8 space-y-6">
               <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Target Registry Entry</label>
-                  <input type="text" className="input-field" placeholder="contact@enterprise.com" />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Template</label>
-                  <select className="input-field appearance-none bg-white">
-                    <option>Strategic Introduction</option>
-                    <option>Follow-up Protocol</option>
-                    <option>Yield Report Submission</option>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Linked Contact *</label>
+                  <select 
+                    required
+                    value={formData.contact_id} 
+                    onChange={e => {
+                      const contact = contacts.find(c => c.id === parseInt(e.target.value));
+                      setFormData({...formData, contact_id: e.target.value, to_email: contact?.email || ''});
+                    }} 
+                    className="input-field appearance-none bg-white"
+                  >
+                    <option value="">Select Contact</option>
+                    {contacts.map(c => (
+                      <option key={c.id} value={c.id}>{c.name} {c.email ? `<${c.email}>` : ''}</option>
+                    ))}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Target Email</label>
+                  <input 
+                    type="email"
+                    value={formData.to_email} 
+                    onChange={e => setFormData({...formData, to_email: e.target.value})} 
+                    className="input-field" 
+                    placeholder="contact@enterprise.com" 
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Subject</label>
-                <input type="text" className="input-field" placeholder="Strategic Partnership Proposal" />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Subject *</label>
+                <input required type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} className="input-field" placeholder="Strategic Partnership Proposal" />
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Payload</label>
-                <textarea rows="6" className="input-field resize-none py-4" placeholder="Initialize communication protocol..."></textarea>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Payload *</label>
+                <textarea required rows="6" value={formData.body} onChange={e => setFormData({...formData, body: e.target.value})} className="input-field resize-none py-4" placeholder="Initialize communication protocol..." />
               </div>
 
-              <div className="pt-8 mt-4 border-t border-slate-50 flex justify-end space-x-3">
+              <div className="pt-4 mt-2 border-t border-slate-50 flex justify-end space-x-3">
                 <button type="button" onClick={() => setIsComposing(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard Draft</button>
-                <button type="button" onClick={() => setIsComposing(false)} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
-                   <Send className="w-4 h-4 mr-2" /> Initialize Broadcast
+                <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                  <Send className="w-4 h-4 mr-2" /> Log & Send
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
