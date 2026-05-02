@@ -180,17 +180,117 @@ SIMPLE_JWT = {
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Email Configuration
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-EMAIL_HOST = 'smtp.sendgrid.net'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'apikey'
-EMAIL_HOST_PASSWORD = os.getenv('SENDGRID_API_KEY', '')
-DEFAULT_FROM_EMAIL = 'noreply@crm.example.com'
+# ──────────────────────────────────────────────────────────────────────────────
+# Set USE_SMTP=true in your environment (or .env file) to activate real SMTP delivery.
+# For Gmail: use an App Password (not your normal password).
+# For SendGrid: set EMAIL_HOST_USER='apikey' and EMAIL_HOST_PASSWORD=<your-api-key>
+#
+# Example environment variables:
+#   EMAIL_HOST=smtp.gmail.com
+#   EMAIL_PORT=587
+#   EMAIL_HOST_USER=youraddress@gmail.com
+#   EMAIL_HOST_PASSWORD=your_app_password
+#   DEFAULT_FROM_EMAIL=youraddress@gmail.com
+#   USE_SMTP=true
+# ──────────────────────────────────────────────────────────────────────────────
+_use_smtp = os.getenv('USE_SMTP', 'false').lower() == 'true'
 
+if _use_smtp:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    # Development: prints emails to the Django terminal (no delivery)
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+EMAIL_HOST          = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT          = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_USE_TLS       = os.getenv('EMAIL_USE_TLS', 'true').lower() == 'true'
+EMAIL_HOST_USER     = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL  = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@crm.example.com')
+
+# ===========================================================================
+# Logging — structured output for Django, Celery, and Workflow engine
+# ===========================================================================
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} [{levelname}] {name}: {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '[{levelname}] {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        # Django request/server logs
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # All workflow-related modules — set to DEBUG to see every step
+        'workflows': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # CRM app modules
+        'leads':    {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'deals':    {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'tasks':    {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'contacts': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        # Celery internals
+        'celery':   {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'celery.task': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
+    },
+}
+
+# ===========================================================================
 # Celery Configuration
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
-CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
+# ===========================================================================
+import os as _os
+
+_redis_url = _os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+
+CELERY_BROKER_URL          = _redis_url
+CELERY_RESULT_BACKEND      = _redis_url
+
+# Serialization — must whitelist both for result backend
+CELERY_ACCEPT_CONTENT      = ['json']
+CELERY_TASK_SERIALIZER     = 'json'
+CELERY_RESULT_SERIALIZER   = 'json'
+
+# Timezone — keep consistent with Django
+CELERY_TIMEZONE            = TIME_ZONE
+CELERY_ENABLE_UTC          = True
+
+# Reliability
+CELERY_ACKS_LATE           = True          # Re-queue if worker dies mid-task
+CELERY_TASK_REJECT_ON_WORKER_LOST = True   # Reject (not ack) on hard crash
+CELERY_TASK_TRACK_STARTED  = True          # Mark tasks STARTED in result backend
+
+# Result expiry — don't pile up result rows forever
+CELERY_RESULT_EXPIRES      = 60 * 60 * 24  # 24 hours
+
+# ---------------------------------------------------------------------------
+# DEV FALLBACK: set CELERY_TASK_ALWAYS_EAGER=true in env to run tasks
+# synchronously without a worker (useful for testing without Redis).
+# ---------------------------------------------------------------------------
+_always_eager = _os.getenv('CELERY_TASK_ALWAYS_EAGER', 'false').lower() == 'true'
+CELERY_TASK_ALWAYS_EAGER            = _always_eager
+CELERY_TASK_EAGER_PROPAGATES        = _always_eager  # Surface exceptions in eager mode
 

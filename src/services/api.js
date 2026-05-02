@@ -152,6 +152,28 @@ export const meetingsApi = createResource('meetings');
 export const callsApi = createResource('calls');
 export const campaignsApi = createResource('campaigns');
 
+// Email API — wraps the real send endpoint + activity log
+export const emailsApi = {
+  /** GET logged email activities */
+  getAll: async (params = {}) => {
+    const response = await api.get('/activities/', { params: { type: 'email', ...params } });
+    return response.data;
+  },
+  /** DELETE an email activity log */
+  delete: async (id) => {
+    const response = await api.delete(`/activities/${id}/`);
+    return response.data;
+  },
+  /**
+   * Send a real email AND log it as an Activity.
+   * @param {{ to_email, subject, body, contact_id? }} payload
+   */
+  send: async (payload) => {
+    const response = await api.post('/emails/send/', payload);
+    return response.data;
+  },
+};
+
 export const analyticsApi = {
   getDashboardStats: async () => {
     const response = await api.get('/analytics/dashboard/');

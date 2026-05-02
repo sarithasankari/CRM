@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   Mail, Edit3, Send, Search, 
   Inbox, Loader2,
-  Trash2, X, Zap, AlertCircle, CheckCircle
+  Trash2, X, Zap, AlertCircle, CheckCircle, WifiOff
 } from 'lucide-react';
-import { activitiesApi, contactsApi } from '../services/api';
+import { emailsApi, contactsApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 
 const EMPTY_FORM = { 
@@ -30,7 +30,7 @@ export default function Emails() {
     setError(null);
     try {
       const [emailsRes, contactsRes] = await Promise.all([
-        activitiesApi.getAll({ type: 'email' }),
+        emailsApi.getAll(),
         contactsApi.getAll(),
       ]);
       setEmails(emailsRes.results || emailsRes);
@@ -46,23 +46,38 @@ export default function Emails() {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!formData.contact_id) {
-      addToast('Please select a contact', 'error');
+    if (!formData.to_email) {
+      addToast('Please enter a recipient email address', 'error');
       return;
     }
+    if (!formData.subject) {
+      addToast('Please enter a subject', 'error');
+      return;
+    }
+    if (!formData.body) {
+      addToast('Please enter a message body', 'error');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const payload = {
-        type: 'email',
-        notes: `TO: ${formData.to_email}\nSUBJECT: ${formData.subject}\n\n${formData.body}`,
+        to_email: formData.to_email,
+        subject: formData.subject,
+        body: formData.body,
       };
-      await activitiesApi.create(payload);
-      addToast('Email logged successfully');
+      if (formData.contact_id) {
+        payload.contact_id = parseInt(formData.contact_id);
+      }
+
+      await emailsApi.send(payload);
+      addToast('✓ Email sent & logged successfully!', 'success');
       setIsComposing(false);
       setFormData(EMPTY_FORM);
       fetchData();
     } catch (err) {
-      addToast('Failed to log email', 'error');
+      const msg = err?.response?.data?.detail || 'Failed to send email.';
+      addToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -71,7 +86,7 @@ export default function Emails() {
   const handleDelete = async (id) => {
     if (!window.confirm('Remove this email log?')) return;
     try {
-      await activitiesApi.delete(id);
+      await emailsApi.delete(id);
       addToast('Email log removed');
       fetchData();
     } catch {
@@ -128,10 +143,19 @@ export default function Emails() {
         </div>
       </div>
 
+      {/* SMTP notice banner */}
+      <div className="flex items-start gap-3 px-5 py-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-sm">
+        <WifiOff className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" />
+        <div>
+          <span className="font-bold">SMTP not configured?</span> Emails are printed to the Django terminal in development mode.
+          Set <code className="bg-amber-100 px-1 rounded text-xs">USE_SMTP=true</code>, <code className="bg-amber-100 px-1 rounded text-xs">EMAIL_HOST_USER</code>, and <code className="bg-amber-100 px-1 rounded text-xs">EMAIL_HOST_PASSWORD</code> in your <code className="bg-amber-100 px-1 rounded text-xs">.env</code> file to enable real delivery.
+        </div>
+      </div>
+
       {/* Main Content */}
       <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px]">
         <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Transmission Registry</h3>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sent Email Registry</h3>
           <div className="flex items-center space-x-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
             <span>Total:</span>
             <span className="text-blue-600">{filtered.length}</span>
@@ -153,8 +177,8 @@ export default function Emails() {
             <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
               <Mail className="w-8 h-8 text-slate-300" />
             </div>
-            <h3 className="text-lg font-black text-slate-900">No emails logged</h3>
-            <p className="text-slate-400 text-sm mt-1 font-medium">Compose and log your first email communication.</p>
+            <h3 className="text-lg font-black text-slate-900">No emails sent yet</h3>
+            <p className="text-slate-400 text-sm mt-1 font-medium">Compose your first email to get started.</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -162,28 +186,28 @@ export default function Emails() {
               const { to, subject, body } = parseEmailNotes(email.notes);
               return (
                 <div key={email.id} className="px-8 py-6 hover:bg-slate-50/50 transition-all group flex items-center">
-                  <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 mr-6 group-hover:scale-110 transition-transform flex-shrink-0">
+                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-500 mr-6 group-hover:scale-110 transition-transform flex-shrink-0">
                     <Mail className="w-5 h-5" />
                   </div>
                   
                   <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 items-center min-w-0">
                     <div className="min-w-0">
                       <span className="text-sm font-black text-slate-900 group-hover:text-blue-600 transition-colors block truncate">{to}</span>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5 block">Primary Contact</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5 block">Recipient</span>
                     </div>
                     
                     <div className="min-w-0">
                       <span className="text-sm font-bold text-slate-900 block truncate">{subject}</span>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5 block">Email Protocol</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5 block">Subject</span>
                     </div>
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          {email.created_at ? new Date(email.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                          {email.created_at ? new Date(email.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                         </span>
                         <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 text-[10px] font-black uppercase tracking-widest flex items-center">
-                          <Zap className="w-3 h-3 mr-1.5" /> Sent
+                          <CheckCircle className="w-3 h-3 mr-1.5" /> Sent
                         </span>
                       </div>
                       <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -207,8 +231,8 @@ export default function Emails() {
           <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
             <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
               <div>
-                <h3 className="text-2xl font-black text-slate-900">Broadcast Protocol</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">High-Velocity Communication Engine</p>
+                <h3 className="text-2xl font-black text-slate-900">Compose Email</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Send & log via SMTP</p>
               </div>
               <button onClick={() => setIsComposing(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all border border-slate-100">
                 <X className="h-5 w-5" />
@@ -218,49 +242,49 @@ export default function Emails() {
             <form onSubmit={handleSend} className="p-8 space-y-6">
               <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Linked Contact *</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Linked Contact</label>
                   <select 
-                    required
                     value={formData.contact_id} 
                     onChange={e => {
                       const contact = contacts.find(c => c.id === parseInt(e.target.value));
-                      setFormData({...formData, contact_id: e.target.value, to_email: contact?.email || ''});
+                      setFormData({...formData, contact_id: e.target.value, to_email: contact?.email || formData.to_email});
                     }} 
                     className="input-field appearance-none bg-white"
                   >
-                    <option value="">Select Contact</option>
+                    <option value="">Select Contact (optional)</option>
                     {contacts.map(c => (
                       <option key={c.id} value={c.id}>{c.name} {c.email ? `<${c.email}>` : ''}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Target Email</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Recipient Email *</label>
                   <input 
+                    required
                     type="email"
                     value={formData.to_email} 
                     onChange={e => setFormData({...formData, to_email: e.target.value})} 
                     className="input-field" 
-                    placeholder="contact@enterprise.com" 
+                    placeholder="recipient@example.com" 
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Subject *</label>
-                <input required type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} className="input-field" placeholder="Strategic Partnership Proposal" />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Subject *</label>
+                <input required type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} className="input-field" placeholder="e.g. Partnership Proposal" />
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Transmission Payload *</label>
-                <textarea required rows="6" value={formData.body} onChange={e => setFormData({...formData, body: e.target.value})} className="input-field resize-none py-4" placeholder="Initialize communication protocol..." />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Message *</label>
+                <textarea required rows="6" value={formData.body} onChange={e => setFormData({...formData, body: e.target.value})} className="input-field resize-none py-4" placeholder="Write your message here..." />
               </div>
 
               <div className="pt-4 mt-2 border-t border-slate-50 flex justify-end space-x-3">
-                <button type="button" onClick={() => setIsComposing(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard Draft</button>
-                <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
-                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                  <Send className="w-4 h-4 mr-2" /> Log & Send
+                <button type="button" onClick={() => setIsComposing(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
+                <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center disabled:opacity-60 disabled:cursor-not-allowed">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+                  {isSubmitting ? 'Sending...' : 'Send Email'}
                 </button>
               </div>
             </form>

@@ -22,7 +22,7 @@ from leads.views import LeadViewSet
 from contacts.views import ContactViewSet
 from deals.views import DealViewSet
 from tasks.views import TaskViewSet
-from activities.views import ActivityViewSet, MeetingViewSet, CallViewSet, CampaignViewSet
+from activities.views import ActivityViewSet, MeetingViewSet, CallViewSet, CampaignViewSet, SendEmailAPIView
 from projects.views import ProjectViewSet
 from workflows.views import WorkflowViewSet, WorkflowLogViewSet
 from quotes.views import QuoteViewSet
@@ -46,11 +46,14 @@ router.register(r'invoices', InvoiceViewSet, basename='invoice')
 router.register(r'cases', CaseViewSet)
 
 from .views import DashboardStatsAPIView, TeamPerformanceAPIView
+from users.views import UserListView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
+    path('api/users/', UserListView.as_view(), name='user-list'),
     path('api/analytics/dashboard/', DashboardStatsAPIView.as_view(), name='dashboard-stats'),
     path('api/analytics/team/', TeamPerformanceAPIView.as_view(), name='team-performance'),
+    path('api/emails/send/', SendEmailAPIView.as_view(), name='send-email'),
     path('api/', include(router.urls)),
 ]
