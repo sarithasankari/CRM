@@ -165,27 +165,55 @@ def _create_task_in_db(
     except Workflow.DoesNotExist:
         logger.warning("[Tasks] Workflow id=%s not found — task will have no source_workflow FK", workflow_id)
 
-    # 4. Create the Task row
-    task = Task.objects.create(
-        title=title,
-        description=description,
-        status='pending',
-        priority=priority,
-        due_date=due_date,
-        assigned_to=assignee,
-        source_workflow=workflow_obj,
-        source_object_id=str(source_object_id),
-    )
+    # 4. Enforce One Task Per Lead Rule
+    existing_task = None
+    if source_object_id:
+        existing_task = Task.objects.filter(
+            source_object_id=str(source_object_id),
+            is_active=True
+        ).first()
+    elif title:
+        existing_task = Task.objects.filter(
+            title__iexact=title,
+            is_active=True
+        ).first()
 
-    logger.info(
-        "[Tasks] Task CREATED id=%s title='%s' assigned_to=%s priority=%s "
-        "due=%s workflow=%s",
-        task.pk, task.title,
-        getattr(assignee, 'username', 'unassigned'),
-        priority,
-        due_date.strftime('%Y-%m-%d'),
-        workflow_id,
-    )
+    if existing_task:
+        logger.info("[Tasks] Updating existing active workflow task for object '%s'.", source_object_id)
+        existing_task.title = title
+        if description:
+            existing_task.description = description
+        if priority:
+            existing_task.priority = priority
+        existing_task.due_date = due_date
+        if assignee:
+            existing_task.assigned_to = assignee
+        if existing_task.status == 'completed':
+             existing_task.status = 'in_progress'
+        existing_task.save()
+        task = existing_task
+    else:
+        # 5. Create the Task row
+        task = Task.objects.create(
+            title=title,
+            description=description,
+            status='pending',
+            priority=priority,
+            due_date=due_date,
+            assigned_to=assignee,
+            source_workflow=workflow_obj,
+            source_object_id=str(source_object_id),
+        )
+
+        logger.info(
+            "[Tasks] Task CREATED id=%s title='%s' assigned_to=%s priority=%s "
+            "due=%s workflow=%s",
+            task.pk, task.title,
+            getattr(assignee, 'username', 'unassigned'),
+            priority,
+            due_date.strftime('%Y-%m-%d'),
+            workflow_id,
+        )
 
     return {
         'task_id':     task.pk,

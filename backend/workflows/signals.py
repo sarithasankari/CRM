@@ -26,6 +26,7 @@ from django.db.models.signals import post_save, pre_save, pre_delete
 from django.dispatch import receiver
 
 from .engine import trigger_workflows
+from .auto_pilot import execute_auto_call, execute_auto_meeting
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,38 @@ def handle_post_save(sender, instance, created, **kwargs):
         if created:
             # ── New record ─────────────────────────────────────────────────
             trigger_workflows(model_name, 'create', instance)
+
+            if model_name == 'lead':
+                # AutoPilot: Lead Created -> Auto Task
+                from tasks.models import Task
+                from django.utils import timezone
+                from datetime import timedelta
+                
+                # Idempotency / Deduplication: Avoid duplicate tasks within 5 mins
+                recent_duplicate = Task.objects.filter(
+                    lead=instance,
+                    title="Call Lead (Auto Scheduled)",
+                    created_at__gte=timezone.now() - timedelta(minutes=5)
+                ).exists()
+
+                if not recent_duplicate:
+                    Task.objects.create(
+                        title="Call Lead (Auto Scheduled)",
+                        description="[AutoPilot] Initial contact task.",
+                        priority="high",
+                        due_date=timezone.now() + timedelta(hours=1),
+                        assigned_to=instance.assigned_to,
+                        source_object_id=str(instance.pk),
+                        lead=instance
+                    )
+
+            elif model_name == 'task' and '(Auto Scheduled)' in instance.title:
+                # Dispatch AutoPilot handlers based on task title
+                if 'Call' in instance.title:
+                    execute_auto_call.apply_async(args=[instance.id], countdown=10) # Run shortly
+                elif 'Meeting' in instance.title:
+                    execute_auto_meeting.apply_async(args=[instance.id], countdown=10)
+
 
         else:
             # ── Updated record ─────────────────────────────────────────────

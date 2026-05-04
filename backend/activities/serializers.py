@@ -12,13 +12,13 @@ class MeetingSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class CallSerializer(serializers.ModelSerializer):
-    type_display = serializers.CharField(source='get_type_display', read_only=True)
+    direction_display = serializers.CharField(source='get_direction_display', read_only=True)
     outcome_display = serializers.CharField(source='get_outcome_display', read_only=True)
 
     class Meta:
         model = Call
         fields = '__all__'
-        read_only_fields = ['created_by', 'created_at']
+        read_only_fields = ['owner', 'created_at']
 
 class CampaignSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)

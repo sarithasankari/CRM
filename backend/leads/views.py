@@ -133,8 +133,15 @@ class LeadViewSet(viewsets.ModelViewSet):
 
             # 6. Async side-effects — only after successful commit
             if send_welcome_email and contact_created:
+                import threading
+                def _dispatch_email():
+                    try:
+                        send_welcome_email.delay(contact.id)
+                    except Exception as e:
+                        logger.warning("Failed to queue welcome email, Redis might be down: %s", e)
+                
                 transaction.on_commit(
-                    lambda: send_welcome_email.delay(contact.id)
+                    lambda: threading.Thread(target=_dispatch_email, daemon=True).start()
                 )
 
             logger.info(

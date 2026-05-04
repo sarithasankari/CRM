@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Table from '../components/Table';
-import { leadsApi, contactsApi, dealsApi, activitiesApi } from '../services/api';
+import { leadsApi, contactsApi, dealsApi, activitiesApi, tasksApi, callsApi, meetingsApi } from '../services/api';
 import { 
   Plus, Download, ChevronDown, Calendar, ArrowDown, X, 
   Loader2, AlertCircle, Trash2, Edit2, Filter, Search,
@@ -9,6 +9,11 @@ import {
   CheckCircle2, XCircle, ChevronLeft, ExternalLink, Paperclip
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import isToday from 'dayjs/plugin/isToday';
+dayjs.extend(relativeTime);
+dayjs.extend(isToday);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LeadDetailView — fully functional lead detail page
@@ -22,9 +27,21 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [relatedDeals, setRelatedDeals]   = useState([]);
   const [relatedActivities, setRelatedActivities] = useState([]);
+  const [relatedTasks, setRelatedTasks]   = useState([]);
+  const [timeline, setTimeline]           = useState([]);
+  const [currentTask, setCurrentTask]     = useState(null);
+  const [suggestedNextTask, setSuggestedNextTask] = useState(null);
+  const [autoCreatePreference, setAutoCreatePreference] = useState(false);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [hideDetails, setHideDetails]     = useState(false);
   const moreMenuRef = useRef(null);
+
+  // Modals for Task Completion
+  const [showCallModal, setShowCallModal] = useState(false);
+  const [callForm, setCallForm] = useState({ outcome: 'connected', duration: 0, notes: '' });
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [meetingForm, setMeetingForm] = useState({ date: '', time: '', meeting_type: 'Discovery', status: 'scheduled', notes: '' });
+  const [isSubmittingActivity, setIsSubmittingActivity] = useState(false);
 
   // Close More menu on outside click
   useEffect(() => {
@@ -37,6 +54,27 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Fetch initial summary (Current Task and Timeline)
+  useEffect(() => {
+    const fetchSummary = async () => {
+      try {
+        const tasksRes = await tasksApi.getAll({ source_object_id: lead.id, is_active: true });
+        const activeTasks = tasksRes.results ?? tasksRes;
+        setCurrentTask(activeTasks.length > 0 ? activeTasks[0] : null);
+
+        const activitiesRes = await activitiesApi.getAll();
+        // Since generic relations aren't perfectly filtered without a specific endpoint, 
+        // we filter by object_id in frontend (assuming small volume for now, or use a better backend filter later)
+        const allActs = activitiesRes.results ?? activitiesRes;
+        const leadActs = allActs.filter(a => a.object_id === lead.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+        setTimeline(leadActs);
+      } catch (err) {
+        // ignore
+      }
+    };
+    fetchSummary();
+  }, [lead.id]);
+
   // Fetch related data when sidebar section changes
   const fetchRelated = useCallback(async (section) => {
     if (section === 'overview') return;
@@ -48,6 +86,9 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
       } else if (section === 'activities') {
         const res = await activitiesApi.getAll();
         setRelatedActivities((res.results ?? res).slice(0, 10));
+      } else if (section === 'tasks') {
+        const res = await tasksApi.getAll({ source_object_id: lead.id });
+        setRelatedTasks((res.results ?? res).slice(0, 10));
       }
     } catch { /* non-critical */ }
     finally { setRelatedLoading(false); }
@@ -88,7 +129,105 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
     }
   };
 
-  const SIDEBAR_ITEMS = ['Overview', 'Notes', 'Emails', 'Activities', 'Deals', 'Attachments'];
+  const handleCompleteTask = async () => {
+    if (!currentTask) return;
+    
+    // Check task_type
+    if (currentTask.task_type === 'call' || currentTask.title.toLowerCase().includes('call')) {
+      setShowCallModal(true);
+      return;
+    }
+    if (currentTask.task_type === 'meeting' || currentTask.title.toLowerCase().includes('meeting')) {
+      setShowMeetingModal(true);
+      return;
+    }
+    
+    // Default complete
+    try {
+      await tasksApi.patch(currentTask.id, { status: 'completed' });
+      addToast('Task marked as complete!', 'success');
+      setSuggestedNextTask(currentTask.title.toLowerCase().includes('call') ? 'Send Proposal' : 'Follow-up Call');
+      setCurrentTask(null);
+      // Refresh timeline
+      const activitiesRes = await activitiesApi.getAll();
+      const allActs = activitiesRes.results ?? activitiesRes;
+      setTimeline(allActs.filter(a => a.object_id === lead.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
+    } catch(e) {}
+  };
+
+  const submitCallLog = async (e) => {
+    e.preventDefault();
+    setIsSubmittingActivity(true);
+    try {
+      // Create call
+      await callsApi.create({
+        related_to: lead.id,
+        content_type: 'lead',
+        object_id: lead.id,
+        direction: 'outbound',
+        outcome: callForm.outcome,
+        duration: parseInt(callForm.duration, 10),
+        notes: callForm.notes,
+        created_from_task: currentTask.id
+      });
+      // Mark task complete
+      await tasksApi.patch(currentTask.id, { status: 'completed' });
+      addToast('Call logged and task completed!', 'success');
+      
+      setShowCallModal(false);
+      setCallForm({ outcome: 'connected', duration: 0, notes: '' });
+      setCurrentTask(null);
+      
+      // Refresh timeline
+      setTimeout(async () => {
+        const activitiesRes = await activitiesApi.getAll();
+        const allActs = activitiesRes.results ?? activitiesRes;
+        setTimeline(allActs.filter(a => a.object_id === lead.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
+      }, 500);
+      
+    } catch(err) {
+      addToast('Failed to log call', 'error');
+    } finally {
+      setIsSubmittingActivity(false);
+    }
+  };
+
+  const submitMeetingLog = async (e) => {
+    e.preventDefault();
+    setIsSubmittingActivity(true);
+    try {
+      await meetingsApi.create({
+        title: `Meeting with ${lead.name}`,
+        related_to: lead.id,
+        content_type: 'lead',
+        object_id: lead.id,
+        status: meetingForm.status,
+        meeting_type: meetingForm.meeting_type,
+        start_time: meetingForm.date && meetingForm.time ? `${meetingForm.date}T${meetingForm.time}` : new Date().toISOString(),
+        notes: meetingForm.notes,
+        created_from_task: currentTask.id
+      });
+      await tasksApi.patch(currentTask.id, { status: 'completed' });
+      addToast('Meeting logged and task completed!', 'success');
+      
+      setShowMeetingModal(false);
+      setMeetingForm({ date: '', time: '', meeting_type: 'Discovery', status: 'scheduled', notes: '' });
+      setCurrentTask(null);
+      
+      setTimeout(async () => {
+        const activitiesRes = await activitiesApi.getAll();
+        const allActs = activitiesRes.results ?? activitiesRes;
+        setTimeline(allActs.filter(a => a.object_id === lead.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
+      }, 500);
+      
+    } catch(err) {
+      addToast('Failed to log meeting', 'error');
+    } finally {
+      setIsSubmittingActivity(false);
+    }
+  };
+
+  const SIDEBAR_ITEMS = ['Overview', 'Notes', 'Emails', 'Activities', 'Deals', 'Tasks', 'Attachments'];
 
   return (
     <div className="bg-white min-h-screen">
@@ -244,6 +383,95 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
 
               {activeTab === 'overview' && (
                 <>
+                  {/* Smart Next Action block */}
+                  {suggestedNextTask && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl shadow-sm p-5 mb-4 relative overflow-hidden">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
+                      <h4 className="text-[12px] font-black text-emerald-600 uppercase tracking-widest mb-1 flex items-center">
+                        ✅ Task Completed
+                      </h4>
+                      <div className="mt-3">
+                        <p className="text-[12px] font-semibold text-emerald-800 uppercase tracking-wider mb-1">➡ Next Action Suggestion</p>
+                        <p className="text-[15px] font-bold text-slate-800">{suggestedNextTask}</p>
+                      </div>
+                      
+                      <div className="mt-3 mb-2 flex items-center gap-2">
+                        <input 
+                          type="checkbox" 
+                          id="autoCreatePref"
+                          checked={autoCreatePreference}
+                          onChange={(e) => setAutoCreatePreference(e.target.checked)}
+                          className="w-3.5 h-3.5 text-blue-600 rounded border-gray-300"
+                        />
+                        <label htmlFor="autoCreatePref" className="text-[12px] text-emerald-700 cursor-pointer select-none">
+                          Auto-create this step next time?
+                        </label>
+                      </div>
+
+                      <div className="flex gap-2 mt-2">
+                        <button 
+                          className="px-4 py-1.5 bg-blue-600 border border-blue-700 rounded text-[12px] font-semibold text-white hover:bg-blue-700 transition-colors"
+                          onClick={async () => {
+                            try {
+                              if (autoCreatePreference) {
+                                addToast('Preference saved. Will auto-create next time.', 'success');
+                              }
+                              await tasksApi.create({ title: suggestedNextTask, lead: lead.id, priority: 'medium', status: 'not_started' });
+                              setSuggestedNextTask(null);
+                              const tasksRes = await tasksApi.getAll({ source_object_id: lead.id, is_active: true });
+                              setCurrentTask((tasksRes.results ?? tasksRes)[0] || null);
+                            } catch(e) {}
+                          }}
+                        >
+                          [ Create ]
+                        </button>
+                        <button 
+                          className="px-4 py-1.5 bg-white border border-emerald-300 rounded text-[12px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
+                          onClick={() => setSuggestedNextTask(null)}
+                        >
+                          [ Skip ]
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Current Task Card */}
+                  {currentTask && (
+                    <div className="bg-gradient-to-r from-orange-50 to-white border border-orange-100 rounded-xl shadow-sm p-5 mb-4 relative overflow-hidden">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
+                      <h4 className="text-[12px] font-black text-orange-600 uppercase tracking-widest mb-1 flex items-center">
+                        🔥 Current Task
+                      </h4>
+                      <div className="flex items-center justify-between mt-2">
+                        <div>
+                          <p className="text-[15px] font-semibold text-slate-800">
+                            {currentTask.title} 
+                          </p>
+                          <p className="text-[13px] text-slate-500 mt-0.5">
+                            Due: <span className="font-medium text-slate-700">{currentTask.due_date ? dayjs(currentTask.due_date).format('MMM D') : 'N/A'}</span>
+                            <span className="mx-2 text-slate-300">|</span>
+                            Last updated: <span className="font-medium text-slate-700">{currentTask.updated_at ? dayjs(currentTask.updated_at).fromNow() : 'Recently'}</span>
+                            {currentTask.update_count > 0 && <span className="ml-1 text-slate-400">({currentTask.update_count} updates)</span>}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            className="px-3 py-1.5 bg-white border border-slate-300 rounded text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+                            onClick={() => {/* Implement Action */}}
+                          >
+                            [ {currentTask.title.toLowerCase().includes('call') ? 'Call Now' : currentTask.title.toLowerCase().includes('email') ? 'Send Email' : 'Start'} ]
+                          </button>
+                          <button 
+                            className="px-3 py-1.5 bg-emerald-600 border border-emerald-700 rounded text-[12px] font-semibold text-white hover:bg-emerald-700"
+                            onClick={handleCompleteTask}
+                          >
+                            [ Complete & Log Activity ]
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Quick info card */}
                   <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
                     <div className="grid grid-cols-2 gap-y-5">
@@ -270,7 +498,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
 
                   {/* Full lead info */}
                   {!hideDetails && (
-                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm">
+                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mt-4">
                       <div className="border-b border-gray-100 px-6 py-3 flex justify-between items-center">
                         <span className="text-[14px] font-semibold text-gray-800">Lead Information</span>
                         <button
@@ -296,17 +524,94 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                   {hideDetails && (
                     <button
                       onClick={() => setHideDetails(false)}
-                      className="text-[13px] text-blue-600 hover:underline px-1"
+                      className="text-[13px] text-blue-600 hover:underline px-1 mt-2"
                     >Show Details</button>
                   )}
                 </>
               )}
 
               {activeTab === 'timeline' && (
-                <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
-                  <Clock className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-[14px] font-semibold text-slate-500">No activity timeline yet</p>
-                  <p className="text-[12px] text-slate-400 mt-1">Actions on this lead will appear here</p>
+                <div className="bg-white border border-gray-200 rounded-xl p-6">
+                  <h4 className="text-[14px] font-bold text-slate-800 mb-6 flex items-center">
+                    📜 Timeline
+                  </h4>
+                  {timeline.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Clock className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                      <p className="text-[14px] font-semibold text-slate-500">No activity timeline yet</p>
+                      <p className="text-[12px] text-slate-400 mt-1">Actions on this lead will appear here</p>
+                    </div>
+                  ) : (
+                    <div className="relative border-l-2 border-slate-100 ml-4 space-y-6">
+                      {(() => {
+                        const grouped = [];
+                        let currentGroup = null;
+                        [...timeline].reverse().forEach(act => {
+                          if (act.type === 'update') {
+                            if (!currentGroup) {
+                              currentGroup = { isGroup: true, type: 'update', count: 1, items: [act], id: act.id };
+                              grouped.push(currentGroup);
+                            } else {
+                              currentGroup.count += 1;
+                              currentGroup.items.push(act);
+                            }
+                          } else {
+                            currentGroup = null;
+                            grouped.push(act);
+                          }
+                        });
+                        return grouped.reverse().map((act) => {
+                          if (act.isGroup) {
+                            return (
+                              <div key={act.id} className="relative pl-6 opacity-70">
+                                <div className="absolute -left-[11px] top-1 bg-white border-2 border-slate-200 w-5 h-5 rounded-full flex items-center justify-center">
+                                  <div className="text-blue-500 font-bold text-[10px]">🔄</div>
+                                </div>
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 cursor-pointer hover:bg-slate-100 transition-colors" onClick={(e) => {
+                                  const details = e.currentTarget.nextElementSibling;
+                                  if (details) details.classList.toggle('hidden');
+                                }}>
+                                  <p className="text-[13px] text-slate-700 font-medium">🔄 Task updated ({act.count} times)</p>
+                                  <p className="text-[11px] text-slate-400 mt-1">Click to expand details</p>
+                                </div>
+                                <div className="hidden mt-2 space-y-2 pl-2 border-l-2 border-slate-200">
+                                  {act.items.slice().reverse().map(subAct => (
+                                    <div key={subAct.id} className="text-[12px] text-slate-500">
+                                      <span className="font-semibold text-slate-600">{dayjs(subAct.created_at).fromNow()}</span> → {subAct.notes}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          const isHighValue = ['call', 'meeting', 'completed'].includes(act.type);
+                          let icon = <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" />;
+                          if (act.type === 'call') icon = <Phone className="w-3.5 h-3.5 text-blue-500" />;
+                          if (act.type === 'reminder') icon = <AlertCircle className="w-3.5 h-3.5 text-amber-500" />;
+                          if (act.type === 'created') icon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+                          if (act.type === 'completed') icon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />;
+                          if (act.type === 'email') icon = <Mail className="w-3.5 h-3.5 text-indigo-500" />;
+                          
+                          const timeStr = dayjs(act.created_at).isToday() ? `Today at ${dayjs(act.created_at).format('h:mm A')}` : dayjs(act.created_at).fromNow();
+
+                          return (
+                            <div key={act.id} className={`relative pl-6 ${isHighValue ? 'opacity-100' : 'opacity-80'}`}>
+                              <div className={`absolute -left-[11px] top-1 bg-white border-2 ${isHighValue ? 'border-blue-100 shadow-sm' : 'border-slate-200'} w-5 h-5 rounded-full flex items-center justify-center`}>
+                                {icon}
+                              </div>
+                              <div className={`rounded-lg p-3 ${isHighValue ? 'bg-blue-50 border border-blue-100' : 'bg-slate-50 border border-slate-100'}`}>
+                                <p className={`text-[13px] ${isHighValue ? 'text-blue-900 font-bold' : 'text-slate-800 font-medium'}`}>{act.notes || act.type}</p>
+                                <p className={`text-[11px] mt-1 ${isHighValue ? 'text-blue-600 font-medium' : 'text-slate-500'}`}>
+                                  {timeStr}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -349,6 +654,28 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                       d.stage?.startsWith('Closed') ? 'bg-rose-50 text-rose-600' :
                       'bg-blue-50 text-blue-600'
                     }`}>{d.stage}</span>
+                  </div>
+                ))
+              }
+            </RelatedSection>
+          )}
+
+          {/* ── Related: Tasks ── */}
+          {activeSection === 'tasks' && (
+            <RelatedSection title="Tasks" icon={<CheckCircle2 className="w-4 h-4" />} loading={relatedLoading}>
+              {relatedTasks.length === 0
+                ? <EmptyState icon={<CheckCircle2 className="w-8 h-8" />} message="No tasks assigned to this lead yet" sub="Create a task to follow up" />
+                : relatedTasks.map(t => (
+                  <div key={t.id} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
+                    <div>
+                      <p className={`text-[13px] font-semibold ${t.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-800'}`}>{t.title}</p>
+                      <p className="text-[12px] text-gray-500">Due: {t.due_date ? new Date(t.due_date).toLocaleDateString() : 'N/A'} · Priority: <span className="capitalize">{t.priority}</span></p>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      t.status === 'completed' ? 'bg-emerald-50 text-emerald-600' :
+                      t.status === 'in_progress' ? 'bg-blue-50 text-blue-600' :
+                      'bg-slate-50 text-slate-600'
+                    }`}>{t.status}</span>
                   </div>
                 ))
               }
@@ -466,6 +793,102 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                     {isSendingEmail ? 'Sending…' : 'Send'}
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Call Logging Modal ── */}
+      {showCallModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !isSubmittingActivity && setShowCallModal(false)} />
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-gray-800 flex items-center gap-2"><Phone className="w-4 h-4 text-blue-600" /> Log Call</h3>
+              <button onClick={() => setShowCallModal(false)} disabled={isSubmittingActivity} className="p-1 text-gray-400 hover:text-gray-700">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={submitCallLog} className="p-6 space-y-4">
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Outcome *</label>
+                <select required value={callForm.outcome} onChange={e => setCallForm(p => ({ ...p, outcome: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none">
+                  <option value="connected">Connected</option>
+                  <option value="interested">Interested</option>
+                  <option value="no_answer">No Answer</option>
+                  <option value="not_interested">Not Interested</option>
+                  <option value="voicemail">Voicemail</option>
+                  <option value="follow_up">Follow-up Required</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Duration (minutes) *</label>
+                <input type="number" required min="0" value={callForm.duration} onChange={e => setCallForm(p => ({ ...p, duration: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Notes</label>
+                <textarea rows={3} value={callForm.notes} onChange={e => setCallForm(p => ({ ...p, notes: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none resize-none" />
+              </div>
+              <div className="flex justify-end pt-2">
+                <button type="button" onClick={() => setShowCallModal(false)} disabled={isSubmittingActivity} className="mr-2 px-4 py-2 text-[13px] font-semibold text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button type="submit" disabled={isSubmittingActivity} className="px-5 py-2 text-[13px] font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                  {isSubmittingActivity && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save Call
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Meeting Logging Modal ── */}
+      {showMeetingModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !isSubmittingActivity && setShowMeetingModal(false)} />
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-gray-800 flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600" /> Log Meeting</h3>
+              <button onClick={() => setShowMeetingModal(false)} disabled={isSubmittingActivity} className="p-1 text-gray-400 hover:text-gray-700">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={submitMeetingLog} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Date *</label>
+                  <input type="date" required value={meetingForm.date} onChange={e => setMeetingForm(p => ({ ...p, date: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Time *</label>
+                  <input type="time" required value={meetingForm.time} onChange={e => setMeetingForm(p => ({ ...p, time: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Meeting Type *</label>
+                <select required value={meetingForm.meeting_type} onChange={e => setMeetingForm(p => ({ ...p, meeting_type: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none">
+                  <option value="Discovery">Discovery Call</option>
+                  <option value="Demo">Product Demo</option>
+                  <option value="Follow-up">Follow-up</option>
+                  <option value="Negotiation">Negotiation</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Status *</label>
+                <select required value={meetingForm.status} onChange={e => setMeetingForm(p => ({ ...p, status: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none">
+                  <option value="scheduled">Scheduled</option>
+                  <option value="completed">Completed</option>
+                  <option value="no_show">No Show</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Notes</label>
+                <textarea rows={3} value={meetingForm.notes} onChange={e => setMeetingForm(p => ({ ...p, notes: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none resize-none" />
+              </div>
+              <div className="flex justify-end pt-2">
+                <button type="button" onClick={() => setShowMeetingModal(false)} disabled={isSubmittingActivity} className="mr-2 px-4 py-2 text-[13px] font-semibold text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button type="submit" disabled={isSubmittingActivity} className="px-5 py-2 text-[13px] font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                  {isSubmittingActivity && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save Meeting
+                </button>
               </div>
             </form>
           </div>

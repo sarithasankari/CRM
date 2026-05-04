@@ -7,10 +7,10 @@ import { callsApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 
 const EMPTY_FORM = { 
-  type: 'outbound', 
+  direction: 'outbound', 
   contact_name: '', 
   company: '', 
-  duration: '', 
+  duration: 0, 
   outcome: 'connected', 
   call_date: new Date().toISOString().slice(0, 16),
   notes: '' 
@@ -68,8 +68,8 @@ export default function Calls() {
     }
   };
 
-  const getCallIcon = (type) => {
-    switch (type) {
+  const getCallIcon = (direction) => {
+    switch (direction) {
       case 'outbound': return <PhoneOutgoing className="w-5 h-5 text-blue-600" />;
       case 'inbound': return <PhoneIncoming className="w-5 h-5 text-emerald-600" />;
       case 'scheduled': return <Clock className="w-5 h-5 text-amber-500" />;
@@ -77,8 +77,8 @@ export default function Calls() {
     }
   };
 
-  const getCallBg = (type) => {
-    switch (type) {
+  const getCallBg = (direction) => {
+    switch (direction) {
       case 'outbound': return 'bg-blue-50';
       case 'inbound': return 'bg-emerald-50';
       case 'scheduled': return 'bg-amber-50';
@@ -98,10 +98,11 @@ export default function Calls() {
     return map[outcome] || 'bg-slate-50 text-slate-400 border-slate-100';
   };
 
-  const filtered = calls.filter(c =>
-    c.contact_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.company?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filtered = calls.filter(c => {
+    const matchName = (c.contact_name || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchCompany = (c.company || '').toLowerCase().includes(searchTerm.toLowerCase());
+    return matchName || matchCompany;
+  });
 
   const formatDate = (dt) => {
     if (!dt) return '—';
@@ -149,7 +150,7 @@ export default function Calls() {
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: 'Total Logged', value: calls.length, color: 'text-blue-600 bg-blue-50' },
-          { label: 'Outbound', value: calls.filter(c => c.type === 'outbound').length, color: 'text-slate-900 bg-slate-50' },
+          { label: 'Outbound', value: calls.filter(c => c.direction === 'outbound').length, color: 'text-slate-900 bg-slate-50' },
           { label: 'Interested', value: calls.filter(c => c.outcome === 'interested').length, color: 'text-emerald-600 bg-emerald-50' },
         ].map((stat, i) => (
           <div key={i} className="bg-white rounded-[24px] border border-slate-200 shadow-sm p-6">
@@ -188,8 +189,8 @@ export default function Calls() {
           <ul className="divide-y divide-slate-50">
             {filtered.map(call => (
               <li key={call.id} className="px-8 py-6 hover:bg-slate-50/50 transition-all group flex items-center">
-                <div className={`flex-shrink-0 p-4 rounded-2xl group-hover:scale-110 transition-transform ${getCallBg(call.type)}`}>
-                  {getCallIcon(call.type)}
+                <div className={`flex-shrink-0 p-4 rounded-2xl group-hover:scale-110 transition-transform ${getCallBg(call.direction)}`}>
+                  {getCallIcon(call.direction)}
                 </div>
                 
                 <div className="ml-6 flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
@@ -202,7 +203,7 @@ export default function Calls() {
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration</p>
                     <div className="flex items-center text-sm font-bold text-slate-700">
                       <Clock className="w-3.5 h-3.5 mr-2 text-slate-300" />
-                      {call.duration || '—'}
+                      {call.duration} sec
                     </div>
                   </div>
 
@@ -245,7 +246,7 @@ export default function Calls() {
               <div className="grid grid-cols-2 gap-5">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Protocol Type</label>
-                  <select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} className="input-field appearance-none bg-white">
+                  <select value={formData.direction} onChange={e => setFormData({...formData, direction: e.target.value})} className="input-field appearance-none bg-white">
                     <option value="outbound">Outbound</option>
                     <option value="inbound">Inbound</option>
                     <option value="scheduled">Scheduled</option>
@@ -277,8 +278,8 @@ export default function Calls() {
 
               <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Duration</label>
-                  <input type="text" value={formData.duration} onChange={e => setFormData({...formData, duration: e.target.value})} className="input-field" placeholder="e.g. 15:00" />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Duration (Seconds)</label>
+                  <input type="number" value={formData.duration} onChange={e => setFormData({...formData, duration: parseInt(e.target.value) || 0})} className="input-field" placeholder="e.g. 150" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Timestamp *</label>

@@ -447,8 +447,15 @@ def _do_send_email(action, instance, workflow) -> None:
             f"{instance.__class__.__name__} id={instance.pk}"
         )
 
+    import threading
+    def _dispatch_email():
+        try:
+            send_workflow_email.apply_async(args=[to_email, subject, body])
+        except Exception as exc:
+            logger.warning("[Engine] Celery unavailable for send_email: %s", exc)
+
     transaction.on_commit(
-        lambda: send_workflow_email.apply_async(args=[to_email, subject, body])
+        lambda: threading.Thread(target=_dispatch_email, daemon=True).start()
     )
     logger.info("[Engine] send_email queued → %s", to_email)
 

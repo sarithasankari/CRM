@@ -27,15 +27,15 @@ class MeetingViewSet(viewsets.ModelViewSet):
 
 class CallViewSet(viewsets.ModelViewSet):
     serializer_class = CallSerializer
-    filterset_fields = ['type', 'outcome']
+    filterset_fields = ['direction', 'outcome']
     search_fields = ['contact_name', 'company', 'notes']
     ordering_fields = ['created_at', 'call_date']
 
     def get_queryset(self):
-        return Call.objects.select_related('created_by').all()
+        return Call.objects.select_related('owner').all()
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        serializer.save(owner=self.request.user)
 
 class CampaignViewSet(viewsets.ModelViewSet):
     serializer_class = CampaignSerializer

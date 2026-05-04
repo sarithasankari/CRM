@@ -24,10 +24,10 @@ export default function Workqueue() {
         const isToday = new Date(t.due_date).toDateString() === new Date().toDateString();
         return {
           id: t.id,
-          type: t.priority === 'High' ? 'Critical' : 'Operational',
+          type: t.priority === 'high' || t.priority === 'urgent' ? 'Critical' : 'Operational',
           title: t.title,
           relatedTo: t.description || 'System Protocol',
-          priority: t.priority || 'Medium',
+          priority: t.priority || 'medium',
           dueDate: t.due_date ? new Date(t.due_date).toLocaleDateString() : 'No Registry',
           status: isOverdue ? 'Overdue' : isToday ? 'Today' : 'Upcoming',
           completed: t.status === 'completed'
@@ -47,9 +47,10 @@ export default function Workqueue() {
 
   const getPriorityIcon = (priority) => {
     switch(priority) {
-      case 'High': return <ArrowUp className="w-4 h-4 text-rose-500" />;
-      case 'Medium': return <Minus className="w-4 h-4 text-amber-500" />;
-      case 'Low': return <ArrowDown className="w-4 h-4 text-blue-500" />;
+      case 'urgent':
+      case 'high': return <ArrowUp className="w-4 h-4 text-rose-500" />;
+      case 'medium': return <Minus className="w-4 h-4 text-amber-500" />;
+      case 'low': return <ArrowDown className="w-4 h-4 text-blue-500" />;
       default: return null;
     }
   };
@@ -176,7 +177,7 @@ export default function Workqueue() {
                       </span>
                       <div className="flex items-center text-[9px] font-black text-slate-500 uppercase tracking-widest bg-slate-100 px-2.5 py-1 rounded-full">
                         {getPriorityIcon(task.priority)}
-                        <span className="ml-1.5">{task.priority} Priority</span>
+                        <span className="ml-1.5 capitalize">{task.priority} Priority</span>
                       </div>
                     </div>
                     <h4 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors">{task.title}</h4>

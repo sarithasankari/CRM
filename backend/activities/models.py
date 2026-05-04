@@ -5,10 +5,14 @@ from django.conf import settings
 
 class Activity(models.Model):
     TYPE_CHOICES = (
+        ('created', 'Created'),
+        ('update', 'Update'),
+        ('completed', 'Completed'),
         ('call', 'Call'),
         ('meeting', 'Meeting'),
         ('email', 'Email'),
         ('note', 'Note'),
+        ('reminder', 'Reminder'),
     )
     
     type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='note')
@@ -27,48 +31,74 @@ class Activity(models.Model):
 
 
 class Meeting(models.Model):
+    MEETING_STATUS_CHOICES = (
+        ('scheduled', 'Scheduled'),
+        ('completed', 'Completed'),
+        ('no_show', 'No Show'),
+    )
     title = models.CharField(max_length=255)
-    date = models.CharField(max_length=100) # Storing as string to match UI (e.g. "Oct 25, 2023" or YYYY-MM-DD)
-    time = models.CharField(max_length=100) # e.g. "10:00 AM - 11:00 AM"
-    type = models.CharField(max_length=50)  # e.g. "Video Call"
-    participants = models.JSONField(default=list)
+    # Generic relation to Lead/Contact/Deal
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True)
+    object_id = models.PositiveIntegerField(null=True, blank=True)
+    related_to = GenericForeignKey('content_type', 'object_id')
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='meetings')
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=MEETING_STATUS_CHOICES, default='scheduled')
+    meeting_type = models.CharField(max_length=50)  # e.g. "Video Call"
     notes = models.TextField(blank=True, null=True)
     
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    # Traceability
+    created_from_task = models.ForeignKey('tasks.Task', on_delete=models.SET_NULL, null=True, blank=True, related_name='generated_meetings')
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.title
 
 class Call(models.Model):
-    TYPE_CHOICES = (
-        ('outbound', 'Outbound'),
+    DIRECTION_CHOICES = (
         ('inbound', 'Inbound'),
+        ('outbound', 'Outbound'),
         ('scheduled', 'Scheduled'),
     )
     OUTCOME_CHOICES = (
-        ('connected', 'Connected'),
-        ('voicemail', 'Voicemail'),
         ('interested', 'Interested'),
+        ('no_answer', 'No Answer'),
         ('not_interested', 'Not Interested'),
+        ('voicemail', 'Voicemail'),
+        ('connected', 'Connected'),
         ('follow_up', 'Follow-up Required'),
         ('pending', 'Pending'),
     )
-    type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='outbound')
-    contact_name = models.CharField(max_length=255)
+    
+    # Generic relation
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True)
+    object_id = models.PositiveIntegerField(null=True, blank=True)
+    related_to = GenericForeignKey('content_type', 'object_id')
+
+    # Unlinked/Manual Data fields
+    contact_name = models.CharField(max_length=255, blank=True, null=True)
     company = models.CharField(max_length=255, blank=True, null=True)
-    duration = models.CharField(max_length=20, blank=True, null=True)
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='calls')
+    direction = models.CharField(max_length=20, choices=DIRECTION_CHOICES, default='outbound')
     outcome = models.CharField(max_length=30, choices=OUTCOME_CHOICES, default='connected')
+    duration = models.IntegerField(default=0, help_text="Duration in seconds")
     notes = models.TextField(blank=True, null=True)
-    call_date = models.DateTimeField()
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='calls')
+    call_date = models.DateTimeField(auto_now_add=True)
+    
+    # Traceability
+    created_from_task = models.ForeignKey('tasks.Task', on_delete=models.SET_NULL, null=True, blank=True, related_name='generated_calls')
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.get_type_display()} - {self.contact_name}"
+        return f"{self.get_direction_display()} Call - {self.get_outcome_display()}"
 
 
 class Campaign(models.Model):

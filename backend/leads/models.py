@@ -12,6 +12,8 @@ class Lead(models.Model):
         ('new', 'New'),
         ('contacted', 'Contacted'),
         ('qualified', 'Qualified'),
+        ('proposal', 'Proposal'),
+        ('won', 'Won'),
         ('lost', 'Lost'),
     )
     
@@ -20,6 +22,7 @@ class Lead(models.Model):
     phone = models.CharField(max_length=20, blank=True, null=True)
     company = models.CharField(max_length=255, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
+    next_action = models.CharField(max_length=255, blank=True, null=True)
     source = models.CharField(max_length=100, blank=True, null=True)
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='leads')
     created_at = models.DateTimeField(auto_now_add=True)
