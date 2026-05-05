@@ -9,7 +9,7 @@ def send_welcome_email(contact_id):
     try:
         contact = Contact.objects.get(id=contact_id)
         # Placeholder for real email logic
-        logger.info(f"Sending welcome email to converted contact: {contact.email} ({contact.name})")
+        logger.info(f"Sending welcome email to converted contact: {contact.email} ({contact.first_name} {contact.last_name})")
         return True
     except Contact.DoesNotExist:
         logger.error(f"Contact {contact_id} not found for welcome email.")

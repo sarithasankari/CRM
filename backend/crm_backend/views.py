@@ -77,8 +77,8 @@ class DashboardStatsAPIView(APIView):
                 'id': f"meeting_{m.id}",
                 'type': 'meeting',
                 'title': m.title,
-                'meta': f"{m.date} • {m.time}",
-                'badge': m.type,
+                'meta': f"{m.start_time.strftime('%Y-%m-%d %H:%M') if m.start_time else 'TBD'}",
+                'badge': m.meeting_type,
                 'badgeColor': 'bg-blue-50 text-blue-600',
                 'iconColor': 'bg-blue-100 text-blue-600',
             })

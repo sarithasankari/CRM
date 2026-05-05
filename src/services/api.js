@@ -51,7 +51,7 @@ api.interceptors.response.use(
           // Update header and retry original request
           originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
           return api(originalRequest);
-        } catch (refreshError) {
+        } catch {
           // Refresh token is expired or invalid
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
@@ -138,7 +138,31 @@ export const dealsApi = {
     return response.data;
   },
 };
-export const tasksApi = createResource('tasks');
+export const tasksApi = {
+  ...createResource('tasks'),
+  startCall: async (id) => {
+    const response = await api.post(`/tasks/${id}/start_call/`);
+    return response.data;
+  },
+  completeTask: async (id, data) => {
+    const response = await api.post(`/tasks/${id}/complete_task/`, data);
+    return response.data;
+  },
+  callDashboard: async () => {
+    const response = await api.get('/tasks/call_dashboard/');
+    return response.data;
+  },
+  metrics: async () => {
+    const response = await api.get('/tasks/metrics/');
+    return response.data;
+  },
+  activityLog: async (id) => {
+    const response = await api.get(`/tasks/${id}/activity_log/`);
+    return response.data;
+  },
+};
+export const activityLogsApi = createResource('activity-logs');
+export const accountsApi = createResource('accounts');
 export const contactsApi = createResource('contacts');
 export const activitiesApi = createResource('activities');
 export const projectsApi = createResource('projects');

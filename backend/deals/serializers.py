@@ -1,5 +1,11 @@
 from rest_framework import serializers
-from .models import Deal
+from .models import Deal, Product
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = '__all__'
 
 
 class DealSerializer(serializers.ModelSerializer):
@@ -8,18 +14,23 @@ class DealSerializer(serializers.ModelSerializer):
         source='owner.username', read_only=True
     )
     owner_full_name = serializers.SerializerMethodField()
-    contact_name = serializers.CharField(
-        source='contact.name', read_only=True
-    )
-    # Exposes the linked contact's company so the Kanban board shows real data
-    company_name = serializers.CharField(
-        source='contact.company', read_only=True, default=''
-    )
+    contact_name = serializers.SerializerMethodField()
+    company_name = serializers.SerializerMethodField()
+
+    def get_company_name(self, obj):
+        if obj.contact and obj.contact.account:
+            return obj.contact.account.name
+        return ""
+
+    def get_contact_name(self, obj):
+        if obj.contact:
+            return f"{obj.contact.first_name} {obj.contact.last_name}".strip()
+        return ""
 
     class Meta:
         model = Deal
         fields = '__all__'
-        read_only_fields = ['owner', 'probability', 'created_at', 'updated_at']
+        read_only_fields = ['owner', 'created_at']
 
     def get_owner_full_name(self, obj):
         if obj.owner:

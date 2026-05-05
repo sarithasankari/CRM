@@ -3,7 +3,7 @@ import {
   Building2, Plus, Search, MapPin, 
   Filter, Loader2, MoreHorizontal, X
 } from 'lucide-react';
-import { contactsApi, dealsApi } from '../services/api';
+import { accountsApi, dealsApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 
 export default function Accounts() {
@@ -17,45 +17,39 @@ export default function Accounts() {
   const fetchAccounts = async () => {
     try {
       setIsLoading(true);
-      const [contactsRes, dealsRes] = await Promise.all([
-        contactsApi.getAll(),
+      const [accountsRes, dealsRes] = await Promise.all([
+        accountsApi.getAll(),
         dealsApi.getAll()
       ]);
       
-      const fetchedContacts = contactsRes.results || contactsRes;
+      const fetchedAccounts = accountsRes.results || accountsRes;
       const fetchedDeals = dealsRes.results || dealsRes;
       
       const accountMap = {};
       
-      // Group contacts by company to form accounts
-      fetchedContacts.forEach(contact => {
-        if (contact.company) {
-           const compName = contact.company.trim();
-           if (!accountMap[compName]) {
-              accountMap[compName] = {
-                 id: compName,
-                 name: compName,
-                 industry: 'General',
-                 size: 'N/A',
-                 contacts: 1,
-                 openDeals: 0,
-                 value: 0,
-                 location: 'Global'
-              };
-           } else {
-              accountMap[compName].contacts += 1;
-           }
-        }
+      fetchedAccounts.forEach(acc => {
+         accountMap[acc.id] = {
+            id: acc.id,
+            name: acc.name,
+            industry: acc.industry || 'General',
+            size: 'N/A',
+            contacts: 'View', // Backend needs a separate count or view if required
+            openDeals: 0,
+            value: 0,
+            location: 'Global'
+         };
       });
       
       // Attach deals to accounts
       fetchedDeals.forEach(deal => {
-         const contact = fetchedContacts.find(c => c.id === deal.contact);
-         if (contact && contact.company) {
-            const compName = contact.company.trim();
-            if (accountMap[compName]) {
-               accountMap[compName].openDeals += 1;
-               accountMap[compName].value += parseFloat(deal.value || 0);
+         // Deal's company_name is now returned natively, but let's try to match by account ID if we had it.
+         // Actually, Deal has a nested contact, and Contact has an account. 
+         // Since DealSerializer doesn't return account_id directly, we match by company_name for now.
+         if (deal.company_name) {
+            const acc = Object.values(accountMap).find(a => a.name === deal.company_name);
+            if (acc) {
+               acc.openDeals += 1;
+               acc.value += parseFloat(deal.value || 0);
             }
          }
       });
@@ -75,10 +69,9 @@ export default function Accounts() {
   const handleAddAccount = async (e) => {
     e.preventDefault();
     try {
-      await contactsApi.create({
-        name: 'Primary Contact',
-        email: `contact@${formData.name.toLowerCase().replace(/\s+/g, '')}.com`,
-        company: formData.name
+      await accountsApi.create({
+        name: formData.name,
+        industry: formData.industry,
       });
       addToast('Account created successfully');
       setIsModalOpen(false);

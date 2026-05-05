@@ -92,8 +92,8 @@ def handle_post_save(sender, instance, created, **kwargs):
                     due_date=timezone.now() + timedelta(hours=1),
                     assigned_to=instance.owner,
                     source_object_id=str(lead.id),
-                    status='pending',
-                    task_type='meeting' if hasattr(Task, 'task_type') else 'follow-up'
+                    status='not_started',
+                    task_type='meeting',
                 )
                 execute_auto_meeting.apply_async(args=[task.id], countdown=3600) # 1 hour
                 
@@ -105,8 +105,8 @@ def handle_post_save(sender, instance, created, **kwargs):
                     due_date=timezone.now() + timedelta(hours=2),
                     assigned_to=instance.owner,
                     source_object_id=str(lead.id),
-                    status='pending',
-                    task_type='call' if hasattr(Task, 'task_type') else 'follow-up'
+                    status='not_started',
+                    task_type='call',
                 )
                 execute_auto_call.apply_async(args=[task.id], countdown=7200) # 2 hours
                 

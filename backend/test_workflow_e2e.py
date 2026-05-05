@@ -10,6 +10,12 @@ import sys
 import time
 import requests
 
+# Keep Django's test discovery from executing this live integration script on
+# import. Run it directly with: python test_workflow_e2e.py
+if __name__ != "__main__":
+    import unittest
+    raise unittest.SkipTest("Live workflow E2E script; run directly against a running server.")
+
 # Force UTF-8 output on Windows
 if sys.platform == "win32":
     import io

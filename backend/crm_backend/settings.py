@@ -68,6 +68,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'tasks.middleware.CurrentUserMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -293,4 +294,24 @@ CELERY_RESULT_EXPIRES      = 60 * 60 * 24  # 24 hours
 _always_eager = _os.getenv('CELERY_TASK_ALWAYS_EAGER', 'false').lower() == 'true'
 CELERY_TASK_ALWAYS_EAGER            = _always_eager
 CELERY_TASK_EAGER_PROPAGATES        = _always_eager  # Surface exceptions in eager mode
+
+# ===========================================================================
+# Celery Beat — Periodic Task Schedule (SLA & Reconciliation)
+# ===========================================================================
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    # SLA enforcement: escalate overdue tasks every 30 minutes
+    'escalate-overdue-tasks': {
+        'task': 'tasks.tasks.escalate_overdue_tasks',
+        'schedule': 30 * 60,  # 30 minutes in seconds
+        'options': {'expires': 25 * 60},  # expire if not consumed within 25 min
+    },
+    # Lead-task reconciliation: run every 5 minutes
+    'reconcile-lead-tasks': {
+        'task': 'tasks.tasks.reconcile_lead_tasks',
+        'schedule': 5 * 60,  # 5 minutes in seconds
+        'options': {'expires': 4 * 60},
+    },
+}
 

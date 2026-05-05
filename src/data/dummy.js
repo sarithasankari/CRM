@@ -16,7 +16,7 @@ export const dashboardData = {
 export const leadsData = [
   { id: 1, name: 'Sarah Miller', jobTitle: 'Chief Marketing Officer', email: 's.miller@globaltech.com', company: 'Global Tech Inc.', status: 'Qualified', rep: 'Alex T.', created: 'Oct 12, 2023', score: 85 },
   { id: 2, name: 'Jason Bourne', jobTitle: 'Procurement Director', email: 'j.bourne@secfirst.io', company: 'Security First Co.', status: 'New', rep: 'Emma R.', created: 'Oct 14, 2023', score: 10 },
-  { id: 3, name: 'Linda Chen', jobTitle: 'VP of Sales', email: 'linda.c@pacific.com', company: 'Pacific Retail', status: 'Contacted', rep: 'Alex T.', created: 'Oct 15, 2023', score: 35 },
+  { id: 3, name: 'Linda Chen', jobTitle: 'VP of Sales', email: 'linda.c@pacific.com', company: 'Pacific Retail', status: 'Connected', rep: 'Alex T.', created: 'Oct 15, 2023', score: 35 },
   { id: 4, name: 'Robert White', jobTitle: 'General Manager', email: 'robert@wholesaledirect.net', company: 'Wholesale Direct', status: 'Lost', rep: 'Sarah P.', created: 'Oct 16, 2023', score: 5 },
   { id: 5, name: 'Kevin Malone', jobTitle: 'Logistics Manager', email: 'k.malone@scranton.biz', company: 'Scranton Paper', status: 'New', rep: 'Alex T.', created: 'Oct 17, 2023', score: 15 },
 ];
@@ -34,9 +34,9 @@ export const dealsData = {
       title: 'New Lead',
       dealIds: ['deal-1', 'deal-2'],
     },
-    'contacted': {
-      id: 'contacted',
-      title: 'Contacted',
+    'connected': {
+      id: 'connected',
+      title: 'Connected',
       dealIds: ['deal-3'],
     },
     'proposal-sent': {
@@ -57,7 +57,7 @@ export const dealsData = {
     'deal-4': { id: 'deal-4', name: 'App Development', company: 'Stark Ind', amount: 25000, owner: 'Jane Smith' },
     'deal-5': { id: 'deal-5', name: 'SEO Retainer', company: 'Umbrella Corp', amount: 3000, owner: 'John Doe' },
   },
-  columnOrder: ['new-lead', 'contacted', 'proposal-sent', 'deal-won'],
+  columnOrder: ['new-lead', 'connected', 'proposal-sent', 'deal-won'],
 };
 
 export const emailsData = [

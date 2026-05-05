@@ -1,91 +1,91 @@
 from django.db import models
 from django.conf import settings
-
+from leads.models import Lead
 
 class Task(models.Model):
+    """
+    SINGLE MASTER TASK: Replaces separate Call and Meeting tables.
+    """
+    TYPE_CHOICES = (
+        ('call', 'Call 📞'),
+        ('meeting', 'Meeting 🧑💼'),
+        ('follow_up', 'Follow-Up'),
+        ('proposal', 'Proposal'),
+        ('todo', 'To-Do'),
+        ('email', 'Email'),
+    )
+
     STATUS_CHOICES = (
-        ('not_started', 'Not Started'),
+        ('pending', 'Pending'),          # backend-generated initial state
+        ('not_started', 'Not Started'),   # frontend default
         ('in_progress', 'In Progress'),
-        ('completed',   'Completed'),
+        ('completed', 'Completed'),
+    )
+
+    OUTCOME_CHOICES = (
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+        ('no_response', 'No Response'),
+        ('interested', 'Interested'),
+        ('not_interested', 'Not Interested'),
     )
 
     PRIORITY_CHOICES = (
-        ('low',    'Low'),
+        ('low', 'Low'),
         ('medium', 'Medium'),
-        ('high',   'High'),
-        ('urgent', 'Urgent'),
+        ('high', 'High'),
     )
-
-    TASK_TYPE_CHOICES = (
-        ('general', 'General'),
-        ('call', 'Call'),
-        ('email', 'Email'),
-        ('meeting', 'Meeting'),
-    )
-
-    title        = models.CharField(max_length=255)
-    task_type    = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='general')
-    description  = models.TextField(blank=True, null=True)
-    status       = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
-    priority     = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
-    due_date     = models.DateTimeField(null=True, blank=True)
-    is_active    = models.BooleanField(default=True)
-    update_count = models.IntegerField(default=0)
     
-    current_step = models.CharField(max_length=50, default='Initial Call')
-    steps        = models.JSONField(default=dict, blank=True)
-    next_action  = models.CharField(max_length=255, blank=True, null=True)
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
+    contact = models.ForeignKey('contacts.Contact', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
+    account = models.ForeignKey('contacts.Account', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
+    deal = models.ForeignKey('deals.Deal', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
     
-    lead = models.ForeignKey(
-        'leads.Lead',
-        on_delete=models.CASCADE,
-        null=True, blank=True,
-        related_name='tasks'
-    )
-    deal = models.ForeignKey(
-        'deals.Deal',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='tasks'
-    )
-    assigned_to  = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='tasks'
-    )
-
-    # Traceability — which workflow auto-created this task (optional)
-    source_workflow = models.ForeignKey(
-        'workflows.Workflow',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='created_tasks',
-        help_text="Populated when this task was auto-created by a workflow."
-    )
-    source_object_id = models.CharField(
-        max_length=50, blank=True, default='',
-        help_text="PK of the triggering record (lead, deal, etc.)."
-    )
-
-    source = models.CharField(max_length=50, default='Manual', help_text="Manual / Automation")
+    task_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='todo')
+    title = models.CharField(max_length=255)
+    current_step = models.CharField(max_length=100, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
+    is_active = models.BooleanField(default=True)
+    
+    # Polymorphic fields for Call/Meeting data
+    call_duration = models.IntegerField(null=True, blank=True, help_text="Duration in seconds (if Call)")
+    call_outcome = models.CharField(max_length=50, null=True, blank=True)
+    meeting_start = models.DateTimeField(null=True, blank=True)
+    meeting_end = models.DateTimeField(null=True, blank=True)
+    
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(max_length=50, choices=OUTCOME_CHOICES, null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True, null=True)
 
-    created_at  = models.DateTimeField(auto_now_add=True)
-    updated_at  = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['due_date', '-priority']
-        indexes = [
-            models.Index(fields=['lead', 'title', 'task_type', 'is_active']),
-        ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=['lead'],
-                condition=~models.Q(status='completed') & models.Q(lead__isnull=False),
-                name='unique_active_task_per_lead'
-            )
-        ]
+    # Legacy fields to prevent complete breakage
+    description = models.TextField(blank=True, null=True)
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='medium')
+    due_date = models.DateTimeField(null=True, blank=True)
+    assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    source_object_id = models.CharField(max_length=100, blank=True, null=True)
+    next_action = models.CharField(max_length=255, blank=True, null=True)
+    steps = models.JSONField(default=dict, blank=True, null=True)
 
     def __str__(self):
         return self.title
+
+class ActivityLog(models.Model):
+    ACTION_CHOICES = (
+        ('status_change', 'Status Change'),
+        ('created', 'Created'),
+        ('updated', 'Updated'),
+        ('completed', 'Completed'),
+        ('outcome_change', 'Outcome Change'),
+    )
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="activity_logs")
+    action_type = models.CharField(max_length=50, choices=ACTION_CHOICES)
+    old_value = models.JSONField(default=dict, blank=True, null=True)
+    new_value = models.JSONField(default=dict, blank=True, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.action_type} for Task {self.task.id}"

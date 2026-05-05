@@ -19,9 +19,9 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 from leads.views import LeadViewSet
-from contacts.views import ContactViewSet
-from deals.views import DealViewSet
-from tasks.views import TaskViewSet
+from contacts.views import ContactViewSet, AccountViewSet
+from deals.views import DealViewSet, ProductViewSet
+from tasks.views import TaskViewSet, ActivityLogViewSet
 from activities.views import ActivityViewSet, MeetingViewSet, CallViewSet, CampaignViewSet, SendEmailAPIView
 from projects.views import ProjectViewSet
 from workflows.views import WorkflowViewSet, WorkflowLogViewSet
@@ -31,9 +31,12 @@ from support.views import CaseViewSet
 
 router = DefaultRouter()
 router.register(r'leads', LeadViewSet, basename='lead')
+router.register(r'accounts', AccountViewSet, basename='account')
 router.register(r'contacts', ContactViewSet, basename='contact')
 router.register(r'deals', DealViewSet, basename='deal')
+router.register(r'products', ProductViewSet, basename='product')
 router.register(r'tasks', TaskViewSet, basename='task')
+router.register(r'activity-logs', ActivityLogViewSet, basename='activity-log')
 router.register(r'activities', ActivityViewSet)
 router.register(r'meetings', MeetingViewSet)
 router.register(r'calls', CallViewSet, basename='call')

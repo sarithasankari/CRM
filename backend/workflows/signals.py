@@ -1,217 +1,216 @@
 """
-Workflow Signal Integration — Production Grade
-===============================================
-Connects Django model lifecycle events to the Workflow Engine.
+Workflow Signal Handlers — Production Grade
+===========================================
+Automatically triggers workflows on model save events:
 
-Handled events:
-  - post_save  → triggers 'create' or 'update' workflows
-  - pre_save   → detects deal stage changes and lead status changes
-                 before the save, so we can pass old values to the engine
-  - pre_delete → triggers 'delete' workflows
+  - on_create: When a new record is created
+  - on_update: When a record is updated
+  - stage_change: When status/stage field changes (deal, lead, quote, task)
+  - on_task_complete: When a task, call, or meeting is marked complete
 
-Stage/status change detection:
-  Deal.stage    → triggers 'stage_changed' if stage is different
-  Lead.status   → triggers 'status_changed' if status is different
-
-Implementation notes:
-  - We use a thread-local store to pass pre_save snapshots to post_save,
-    avoiding a second DB query per save.
-  - All exceptions are caught so a broken workflow NEVER crashes the request.
+Usage:
+  - Signals are automatically connected via apps.py
+  - Tracks field changes to detect stage_change triggers
+  - Uses thread-local storage to preserve old values across signal handlers
 """
 
-import threading
 import logging
+import threading
 
-from django.db.models.signals import post_save, pre_save, pre_delete
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from .engine import trigger_workflows
-from .auto_pilot import execute_auto_call, execute_auto_meeting
 
 logger = logging.getLogger(__name__)
 
-# Thread-local storage for pre-save snapshots
-_pre_save_state = threading.local()
+# Models watched for workflow triggers
+WATCHED_MODELS = {
+    ('leads', 'lead'): 'lead',
+    ('contacts', 'contact'): 'contact',
+    ('contacts', 'account'): 'account',
+    ('deals', 'deal'): 'deal',
+    ('deals', 'product'): 'product',
+    ('tasks', 'task'): 'task',
+    ('activities', 'call'): 'call',
+    ('activities', 'meeting'): 'meeting',
+    ('quotes', 'quote'): 'quote',
+    ('invoices', 'invoice'): 'invoice',
+    ('projects', 'project'): 'project',
+}
 
-# Models to watch (lowercase model names matching workflow module choices)
-WATCHED_APPS = {'leads', 'deals', 'tasks', 'contacts', 'projects', 'quotes', 'invoices', 'support'}
+# Fields that trigger stage_change workflows
+STAGE_FIELDS = {
+    'deal': 'stage',
+    'lead': 'status',
+    'task': 'status',
+    'quote': 'status',
+    'project': 'status',
+}
+
+# Fields that trigger task completion workflows
+COMPLETION_STATUSES = {'completed', 'done', 'finished', 'closed'}
+
+# Thread-local storage for previous field values
+_state = threading.local()
 
 
-# ===========================================================================
-# PRE-SAVE — capture old values before the DB write
-# ===========================================================================
 @receiver(pre_save)
-def capture_pre_save_state(sender, instance, **kwargs):
+def capture_previous_values(sender, instance, **kwargs):
     """
-    Before saving, record the current (old) values of change-tracked fields.
-    These are stored per-thread so post_save can compare new vs old.
+    Capture previous field values before save.
+    Used to detect stage/status changes and other field modifications.
     """
     app_label = sender._meta.app_label
-    if app_label not in WATCHED_APPS:
-        return
-
     model_name = sender._meta.model_name
-
-    # Only track existing records (pk set = already in DB)
-    if not instance.pk:
+    module = _module_for(sender)
+    
+    if not module or not instance.pk:
         return
 
-    snapshot = {}
+    tracked = {}
+    fields_to_track = []
+    
+    # Add stage/status fields
+    stage_field = STAGE_FIELDS.get(model_name)
+    if stage_field:
+        fields_to_track.append(stage_field)
+    
+    # Add other important fields for tracking
+    if model_name == 'lead':
+        fields_to_track.extend(['status', 'score', 'assigned_to_id'])
+    if model_name == 'deal':
+        fields_to_track.extend(['stage', 'value', 'owner_id'])
+    if model_name == 'task':
+        fields_to_track.extend(['status', 'priority', 'assigned_to_id'])
+    if model_name == 'quote':
+        fields_to_track.extend(['status', 'amount', 'valid_until'])
+    if model_name == 'contact':
+        fields_to_track.extend(['status', 'owner_id'])
+    
+    if not fields_to_track:
+        return
 
     try:
-        # ── Deal: track stage changes ──────────────────────────────────────
-        if model_name == 'deal':
-            try:
-                old = sender.objects.only('stage').get(pk=instance.pk)
-                snapshot['old_stage'] = old.stage
-            except sender.DoesNotExist:
-                pass
+        old = sender.objects.only(*fields_to_track).get(pk=instance.pk)
+        for field in fields_to_track:
+            old_val = getattr(old, field, None)
+            new_val = getattr(instance, field, None)
+            tracked[f'old_{field}'] = old_val
+            tracked[f'new_{field}'] = new_val
+    except sender.DoesNotExist:
+        return
 
-        # ── Lead: track status changes ─────────────────────────────────────
-        elif model_name == 'lead':
-            try:
-                old = sender.objects.only('status').get(pk=instance.pk)
-                snapshot['old_status'] = old.status
-            except sender.DoesNotExist:
-                pass
-
-    except Exception as exc:
-        logger.warning(
-            "[Signals] pre_save snapshot error for %s id=%s: %s",
-            model_name, instance.pk, exc
-        )
-
-    if snapshot:
-        key = _make_key(model_name, instance.pk)
-        setattr(_pre_save_state, key, snapshot)
+    if tracked:
+        setattr(_state, _state_key(sender, instance.pk), tracked)
 
 
-# ===========================================================================
-# POST-SAVE — trigger create / update / stage_changed / status_changed
-# ===========================================================================
 @receiver(post_save)
-def handle_post_save(sender, instance, created, **kwargs):
-    app_label = sender._meta.app_label
-    if app_label not in WATCHED_APPS:
+def emit_workflow_events(sender, instance, created, **kwargs):
+    """
+    Emit workflow trigger events after save.
+    Handles on_create, on_update, stage_change, and on_task_complete triggers.
+    """
+    module = _module_for(sender)
+    if not module:
         return
 
-    model_name = sender._meta.model_name
+    key = _state_key(sender, instance.pk)
+    previous = getattr(_state, key, {})
+    if hasattr(_state, key):
+        delattr(_state, key)
 
     try:
-        # Retrieve pre-save snapshot (may be empty for new records)
-        key      = _make_key(model_name, instance.pk)
-        snapshot = getattr(_pre_save_state, key, {})
-        _clear_snapshot(key)
-
+        # Trigger on_create event
         if created:
-            # ── New record ─────────────────────────────────────────────────
-            trigger_workflows(model_name, 'create', instance)
+            trigger_workflows(module, 'on_create', instance)
+            return
 
-            if model_name == 'lead':
-                # AutoPilot: Lead Created -> Auto Task
-                from tasks.models import Task
-                from django.utils import timezone
-                from datetime import timedelta
+        # Trigger on_update event (always fired on updates)
+        trigger_workflows(module, 'on_update', instance, previous)
+
+        # Trigger stage_change when relevant field changes
+        stage_field = STAGE_FIELDS.get(module)
+        if stage_field:
+            old_val = previous.get(f'old_{stage_field}')
+            new_val = previous.get(f'new_{stage_field}')
+            if old_val != new_val:
+                trigger_workflows(
+                    module,
+                    'stage_change',
+                    instance,
+                    {
+                        'field': stage_field,
+                        'old_value': old_val,
+                        'new_value': new_val,
+                    },
+                )
+
+        # Trigger on_task_complete when task/call/meeting is completed
+        if module in {'task', 'call', 'meeting'}:
+            status_field = STAGE_FIELDS.get(module, 'status')
+            old_status = previous.get(f'old_{status_field}', '')
+            new_status = previous.get(f'new_{status_field}', '')
+            
+            if old_status not in COMPLETION_STATUSES and new_status in COMPLETION_STATUSES:
+                trigger_workflows(module, 'on_task_complete', instance, previous)
                 
-                # Idempotency / Deduplication: Avoid duplicate tasks within 5 mins
-                recent_duplicate = Task.objects.filter(
-                    lead=instance,
-                    title="Call Lead (Auto Scheduled)",
-                    created_at__gte=timezone.now() - timedelta(minutes=5)
-                ).exists()
-
-                if not recent_duplicate:
-                    Task.objects.create(
-                        title="Call Lead (Auto Scheduled)",
-                        description="[AutoPilot] Initial contact task.",
-                        priority="high",
-                        due_date=timezone.now() + timedelta(hours=1),
-                        assigned_to=instance.assigned_to,
-                        source_object_id=str(instance.pk),
-                        lead=instance
-                    )
-
-            elif model_name == 'task' and '(Auto Scheduled)' in instance.title:
-                # Dispatch AutoPilot handlers based on task title
-                if 'Call' in instance.title:
-                    execute_auto_call.apply_async(args=[instance.id], countdown=10) # Run shortly
-                elif 'Meeting' in instance.title:
-                    execute_auto_meeting.apply_async(args=[instance.id], countdown=10)
-
-
-        else:
-            # ── Updated record ─────────────────────────────────────────────
-            trigger_workflows(model_name, 'update', instance)
-
-            # ── Deal stage change ──────────────────────────────────────────
-            if model_name == 'deal' and 'old_stage' in snapshot:
-                old_stage = snapshot['old_stage']
-                new_stage = instance.stage
-                if old_stage != new_stage:
-                    logger.info(
-                        "[Signals] Deal id=%s stage changed: %s → %s",
-                        instance.pk, old_stage, new_stage
-                    )
-                    trigger_workflows(
-                        'deal', 'stage_changed', instance,
-                        extra_context={
-                            'old_stage': old_stage,
-                            'new_stage': new_stage,
-                        }
-                    )
-
-            # ── Lead status change ─────────────────────────────────────────
-            if model_name == 'lead' and 'old_status' in snapshot:
-                old_status = snapshot['old_status']
-                new_status = instance.status
-                if old_status != new_status:
-                    logger.info(
-                        "[Signals] Lead id=%s status changed: %s → %s",
-                        instance.pk, old_status, new_status
-                    )
-                    trigger_workflows(
-                        'lead', 'status_changed', instance,
-                        extra_context={
-                            'old_status': old_status,
-                            'new_status': new_status,
-                        }
-                    )
+                # Chain to next workflow (task-driven automation)
+                _trigger_dependent_workflows(instance, previous)
 
     except Exception as exc:
         logger.error(
-            "[Signals] post_save handler error for %s id=%s: %s",
-            model_name, getattr(instance, 'pk', '?'), exc, exc_info=True
+            "[WorkflowSignals] failed for module=%s instance_id=%s: %s",
+            module,
+            instance.pk,
+            exc,
+            exc_info=True
         )
 
 
-# ===========================================================================
-# PRE-DELETE — trigger delete workflows
-# ===========================================================================
-@receiver(pre_delete)
-def handle_pre_delete(sender, instance, **kwargs):
-    app_label = sender._meta.app_label
-    if app_label not in WATCHED_APPS:
+def _trigger_dependent_workflows(instance, previous):
+    """
+    Trigger dependent workflows based on task completion.
+    For example: When "Initial Call" task completes → create "Follow-up Call" task.
+    """
+    from tasks.models import Task
+    
+    if not isinstance(instance, Task):
         return
-
-    model_name = sender._meta.model_name
-    try:
-        trigger_workflows(model_name, 'delete', instance)
-    except Exception as exc:
-        logger.error(
-            "[Signals] pre_delete handler error for %s id=%s: %s",
-            model_name, getattr(instance, 'pk', '?'), exc, exc_info=True
+    
+    # Get the linked record (lead, contact, deal, etc.)
+    linked_record = None
+    if instance.lead:
+        linked_record = instance.lead
+        linked_module = 'lead'
+    elif instance.deal:
+        linked_record = instance.deal
+        linked_module = 'deal'
+    elif instance.contact:
+        linked_record = instance.contact
+        linked_module = 'contact'
+    else:
+        return
+    
+    if linked_record:
+        # Trigger workflows on the linked record with on_task_complete trigger
+        trigger_workflows(
+            linked_module,
+            'on_task_complete',
+            linked_record,
+            {
+                'task_id': instance.pk,
+                'task_type': instance.task_type,
+                'task_status': instance.status,
+            }
         )
 
 
-# ===========================================================================
-# HELPERS
-# ===========================================================================
-def _make_key(model_name: str, pk) -> str:
-    return f"_wf_{model_name}_{pk}"
+def _module_for(sender):
+    """Map model to module name for workflow triggers."""
+    return WATCHED_MODELS.get((sender._meta.app_label, sender._meta.model_name))
 
 
-def _clear_snapshot(key: str) -> None:
-    try:
-        delattr(_pre_save_state, key)
-    except AttributeError:
-        pass
+def _state_key(sender, pk):
+    """Generate a unique key for thread-local storage."""
+    return f"{sender._meta.label_lower}:{pk}"

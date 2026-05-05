@@ -21,7 +21,7 @@ class WorkflowActionSerializer(serializers.ModelSerializer):
 class WorkflowLogSerializer(serializers.ModelSerializer):
     class Meta:
         model       = WorkflowLog
-        fields      = ['id', 'status', 'trigger_event', 'object_id', 'executed_at', 'message']
+        fields      = ['id', 'status', 'trigger_event', 'object_id', 'executed_at', 'message', 'execution_key']
         read_only_fields = fields
 
 

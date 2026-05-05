@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Plus, Clock, Calendar, AlertCircle, X, 
   Trash2, CheckCircle2, ListTodo, MoreHorizontal,
-  ChevronRight, Activity, PhoneCall, Mail, FileText, CheckSquare, Search, Filter,
-  Settings, Zap, List, LayoutGrid, Check, Play, Edit3
+  ChevronRight, Activity, PhoneCall, Mail, FileText, CheckSquare,
+  Settings, Zap, List, LayoutGrid, Check, Play, Edit3,
+  Video, Users, Loader2
 } from 'lucide-react';
 import { tasksApi, leadsApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
@@ -13,20 +14,56 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 dayjs.extend(relativeTime);
 
+const TYPE_ICONS = {
+  call: <PhoneCall className="w-3.5 h-3.5" />,
+  meeting: <Video className="w-3.5 h-3.5" />,
+  email: <Mail className="w-3.5 h-3.5" />,
+  follow_up: <Clock className="w-3.5 h-3.5" />,
+  proposal: <FileText className="w-3.5 h-3.5" />,
+  todo: <CheckSquare className="w-3.5 h-3.5" />,
+};
+
+const TYPE_COLORS = {
+  call:     'bg-blue-50 text-blue-600 border-blue-200',
+  meeting:  'bg-purple-50 text-purple-600 border-purple-200',
+  email:    'bg-amber-50 text-amber-600 border-amber-200',
+  follow_up:'bg-teal-50 text-teal-600 border-teal-200',
+  proposal: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+  todo:     'bg-slate-50 text-slate-500 border-slate-200',
+};
+
+const OUTCOME_STYLES = {
+  interested:     'bg-emerald-50 text-emerald-700 border-emerald-200',
+  no_response:    'bg-amber-50 text-amber-700 border-amber-200',
+  not_interested: 'bg-rose-50 text-rose-700 border-rose-200',
+  success:        'bg-blue-50 text-blue-700 border-blue-200',
+  failed:         'bg-slate-100 text-slate-600 border-slate-200',
+};
+
+const LOG_COLORS = {
+  created:       'bg-blue-500',
+  status_change: 'bg-amber-500',
+  outcome_change:'bg-purple-500',
+  completed:     'bg-emerald-500',
+  updated:       'bg-slate-400',
+};
+
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [view, setView] = useState('Current Tasks'); // 'Current Tasks', 'Today Tasks', 'Overdue Tasks'
+  const [view, setView] = useState('Current Tasks');
   const [isAutomationModalOpen, setIsAutomationModalOpen] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState([]);
-  const [layout, setLayout] = useState('list'); // 'list' or 'kanban'
+  const [layout, setLayout] = useState('list');
   const [autoMode, setAutoMode] = useState(true);
   
   const [selectedTask, setSelectedTask] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerLogs, setDrawerLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
   
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [newTask, setNewTask] = useState({ title: '', due_date: '', priority: 'medium', status: 'not_started', description: '' });
+  const [newTask, setNewTask] = useState({ title: '', due_date: '', priority: 'medium', status: 'not_started', description: '', task_type: 'todo' });
 
   const { addToast } = useToast();
 
@@ -48,16 +85,34 @@ export default function Tasks() {
       await tasksApi.create(newTask);
       addToast("Task added successfully, brilliant!", "success");
       setIsCreateModalOpen(false);
-      setNewTask({ title: '', due_date: '', priority: 'medium', status: 'not_started', description: '' });
+      setNewTask({ title: '', due_date: '', priority: 'medium', status: 'not_started', description: '', task_type: 'todo' });
       fetchTasks();
     } catch (err) {
       addToast("We couldn't add the task, sorry", "error");
     }
   };
 
-  useEffect(() => {
-    fetchTasks();
+  const fetchActivityLogs = useCallback(async (taskId) => {
+    if (!taskId) return;
+    setLogsLoading(true);
+    try {
+      const data = await tasksApi.activityLog(taskId);
+      setDrawerLogs(Array.isArray(data) ? data : (data.results || []));
+    } catch {
+      setDrawerLogs([]);
+    } finally {
+      setLogsLoading(false);
+    }
   }, []);
+
+  useEffect(() => { fetchTasks(); }, []);
+
+  const openDrawer = (task) => {
+    setSelectedTask(task);
+    setIsDrawerOpen(true);
+    setDrawerLogs([]);
+    fetchActivityLogs(task.id);
+  };
 
   const handleStatusChange = async (taskId, newStatus) => {
     // Optimistic UI update
@@ -326,19 +381,24 @@ export default function Tasks() {
                             />
                           </td>
                           <td className="px-6 py-4">
-                            <div className="flex flex-col">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${TYPE_COLORS[task.task_type] || TYPE_COLORS.todo}`}>
+                                  {TYPE_ICONS[task.task_type] || TYPE_ICONS.todo}
+                                  {(task.task_type || 'todo').replace('_', ' ')}
+                                </span>
+                                {isOverdue && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
+                                    <AlertCircle className="w-3 h-3" /> Overdue
+                                  </span>
+                                )}
+                              </div>
                               <span className={`text-sm font-medium ${task.status === 'completed' ? 'text-slate-400 line-through' : 'text-slate-900 group-hover:text-blue-600 transition-colors'}`}>
                                 {task.title}
                               </span>
-                              {task.current_step && (
-                                <span className="text-[11px] font-medium text-slate-500 mt-1 flex items-center">
-                                  <Activity className="w-3 h-3 mr-1 text-blue-500" />
-                                  Step: <span className="text-blue-700 ml-1">{task.current_step}</span>
-                                </span>
-                              )}
-                              {task.title.includes('(Auto') && (
-                                <span className="mt-1 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 w-fit">
-                                  <Zap className="w-3 h-3 mr-1" /> System Executed
+                              {task.outcome && (
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border w-fit ${OUTCOME_STYLES[task.outcome] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                  Outcome: {task.outcome.replace('_', ' ')}
                                 </span>
                               )}
                             </div>
@@ -412,7 +472,7 @@ export default function Tasks() {
                                   {...provided.draggableProps}
                                   {...provided.dragHandleProps}
                                   className={`bg-white p-4 rounded-lg border shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 transition-colors ${snapshot.isDragging ? 'shadow-lg border-blue-400 ring-2 ring-blue-500/20' : 'border-slate-200'}`}
-                                  onClick={() => { setSelectedTask(task); setIsDrawerOpen(true); }}
+                                  onClick={() => openDrawer(task)}
                                   style={{...provided.draggableProps.style}}
                                 >
                                   <div className="flex justify-between items-start mb-2">
@@ -544,18 +604,34 @@ export default function Tasks() {
             {/* Meta info grid */}
             <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-100">
               <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Due Date</p>
-                <p className="text-sm font-medium text-slate-900">
-                  {selectedTask.due_date ? dayjs(selectedTask.due_date).format('MMM D, YYYY') : 'None'}
-                </p>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Type</p>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border ${TYPE_COLORS[selectedTask.task_type] || TYPE_COLORS.todo}`}>
+                  {TYPE_ICONS[selectedTask.task_type] || TYPE_ICONS.todo}
+                  {(selectedTask.task_type || 'todo').replace('_', ' ')}
+                </span>
               </div>
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Priority</p>
                 <div>{getPriorityBadge(selectedTask.priority)}</div>
               </div>
               <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Due Date</p>
+                <p className={`text-sm font-medium ${selectedTask.is_overdue ? 'text-rose-600 font-bold' : 'text-slate-900'}`}>
+                  {selectedTask.due_date ? dayjs(selectedTask.due_date).format('MMM D, YYYY h:mm A') : 'None'}
+                  {selectedTask.is_overdue && <span className="ml-1 text-[10px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full border border-rose-200 font-black">OVERDUE</span>}
+                </p>
+              </div>
+              <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</p>
                 <p className="text-sm font-medium text-slate-900 capitalize">{selectedTask.status.replace('_', ' ')}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Outcome</p>
+                {selectedTask.outcome ? (
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${OUTCOME_STYLES[selectedTask.outcome] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                    {selectedTask.outcome.replace('_', ' ')}
+                  </span>
+                ) : <p className="text-sm text-slate-400 italic">Pending</p>}
               </div>
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Owner</p>
@@ -593,25 +669,38 @@ export default function Tasks() {
               </div>
             )}
 
-            {/* Mocked Activity log */}
+            {/* Real Activity Log */}
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center">
-                <Activity className="w-4 h-4 mr-2" /> Activity Log
+                <Activity className="w-4 h-4 mr-2" /> Activity History
               </p>
-              <div className="space-y-4 pl-2 border-l-2 border-slate-100 ml-2">
-                <div className="relative pl-4">
-                  <div className="absolute -left-[21px] w-2.5 h-2.5 bg-blue-500 rounded-full border-4 border-white top-1" />
-                  <p className="text-sm font-medium text-slate-800">Task Created</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{dayjs(selectedTask.created_at).format('MMM D, YYYY h:mm A')}</p>
+              {logsLoading ? (
+                <div className="flex items-center gap-2 text-slate-400 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading history…
                 </div>
-                {selectedTask.updated_at !== selectedTask.created_at && (
-                  <div className="relative pl-4">
-                    <div className="absolute -left-[21px] w-2.5 h-2.5 bg-amber-500 rounded-full border-4 border-white top-1" />
-                    <p className="text-sm font-medium text-slate-800">Status Updated</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{dayjs(selectedTask.updated_at).fromNow()}</p>
-                  </div>
-                )}
-              </div>
+              ) : drawerLogs.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">No activity recorded yet.</p>
+              ) : (
+                <div className="space-y-3 pl-2 border-l-2 border-slate-100 ml-2">
+                  {drawerLogs.map((log, i) => (
+                    <div key={i} className="relative pl-4">
+                      <div className={`absolute -left-[21px] w-2.5 h-2.5 rounded-full border-4 border-white top-1 ${LOG_COLORS[log.action_type] || 'bg-slate-400'}`} />
+                      <p className="text-sm font-medium text-slate-800 capitalize">
+                        {log.action_type.replace(/_/g, ' ')}
+                        {log.new_value?.status && (
+                          <span className="ml-1 text-blue-600">→ {log.new_value.status.replace(/_/g,' ')}</span>
+                        )}
+                        {log.new_value?.outcome && (
+                          <span className="ml-1 text-emerald-600">({log.new_value.outcome.replace(/_/g,' ')})</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {log.user_name || 'System'} · {dayjs(log.timestamp).fromNow()}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -737,17 +826,32 @@ export default function Tasks() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                  <select 
-                    value={newTask.status} 
-                    onChange={e => setNewTask({...newTask, status: e.target.value})} 
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="not_started">Not Started</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="completed">Completed</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Task Type</label>
+                    <select 
+                      value={newTask.task_type} 
+                      onChange={e => setNewTask({...newTask, task_type: e.target.value})} 
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="todo">To-Do</option>
+                      <option value="call">Call</option>
+                      <option value="meeting">Meeting</option>
+                      <option value="email">Email</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                    <select 
+                      value={newTask.status} 
+                      onChange={e => setNewTask({...newTask, status: e.target.value})} 
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="not_started">Not Started</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div>
