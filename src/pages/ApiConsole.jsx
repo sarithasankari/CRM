@@ -3,7 +3,7 @@ import {
   Terminal, Key, Copy, CheckCircle2, 
   ShieldAlert, Zap, Server, Code, 
   RefreshCcw, Globe, Lock, Cpu,
-  ExternalLink, ChevronRight
+  ExternalLink, ChevronRight, Plus
 } from 'lucide-react';
 import { authService, leadsApi } from '../services/api';
 

@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import Workflow, WorkflowCondition, WorkflowAction, WorkflowLog, RoundRobinState
+from .models import (
+    Workflow, WorkflowCondition, WorkflowAction, WorkflowLog, 
+    RoundRobinState, WorkflowActionLog, WorkflowEvent, WorkflowChain
+)
 
 
 class WorkflowConditionSerializer(serializers.ModelSerializer):
@@ -18,11 +21,63 @@ class WorkflowActionSerializer(serializers.ModelSerializer):
         ]
 
 
+class WorkflowActionLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowActionLog
+        fields = [
+            'id', 'status', 'message', 'error_details', 
+            'retry_count', 'executed_at', 'idempotency_key', 'is_compensated'
+        ]
+
+
 class WorkflowLogSerializer(serializers.ModelSerializer):
+    action_logs = WorkflowActionLogSerializer(many=True, read_only=True)
+    
     class Meta:
         model       = WorkflowLog
-        fields      = ['id', 'status', 'trigger_event', 'object_id', 'executed_at', 'message', 'execution_key']
+        fields      = [
+            'id', 'status', 'trigger_event', 'object_id', 
+            'executed_at', 'message', 'execution_key', 'chain_id',
+            'action_logs'
+        ]
         read_only_fields = fields
+
+
+class WorkflowEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowEvent
+        fields = '__all__'
+
+
+class WorkflowTraceSerializer(serializers.ModelSerializer):
+    executions = serializers.SerializerMethodField()
+    events = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = WorkflowChain
+        fields = ['chain_id', 'depth', 'created_at', 'is_active', 'executions', 'events']
+
+    def get_executions(self, obj):
+        # Find all logs that belong to this chain (exact match or parent match)
+        # Chain IDs are dot-separated like 'root.child.grandchild'
+        logs = WorkflowLog.objects.filter(
+            chain_id__startswith=obj.chain_id
+        ).select_related('workflow').prefetch_related('action_logs__action').order_by('executed_at')
+        
+        return [{
+            'workflow_name': log.workflow.name,
+            'status': log.status,
+            'trigger': log.trigger_event,
+            'object_id': log.object_id,
+            'executed_at': log.executed_at,
+            'actions': WorkflowActionLogSerializer(log.action_logs.all(), many=True).data
+        } for log in logs]
+
+    def get_events(self, obj):
+        # Return the root event and any related events if needed
+        # For now, just the root event
+        events = WorkflowEvent.objects.filter(event_key=obj.root_event_key)
+        return WorkflowEventSerializer(events, many=True).data
 
 
 class WorkflowSerializer(serializers.ModelSerializer):

@@ -6,7 +6,24 @@ export default defineConfig({
   plugins: [react()],
   server: {
     watch: {
-      ignored: ['**/backend/**', '**/redis/**', '**/.git/**']
+      ignored: [
+        '**/backend/**',
+        '**/redis/**',
+        '**/.git/**',
+        '**/node_modules/**',
+        '**/dist/**',
+      ]
+    }
+  },
+  build: {
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor': ['react', 'react-dom', 'react-router-dom', 'lucide-react', 'recharts', 'axios'],
+        }
+      }
     }
   }
 })
+

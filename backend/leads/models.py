@@ -29,6 +29,9 @@ class Lead(models.Model):
 
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    deal_required = models.BooleanField(default=False, help_text="Set to True after successful meeting until deal is created.")
+    deal_required_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when deal became required.")
+
 
     objects = SoftDeleteManager()
     all_objects = models.Manager()

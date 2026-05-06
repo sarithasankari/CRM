@@ -12,8 +12,10 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Workflow, WorkflowLog
-from .serializers import WorkflowSerializer, WorkflowLogSerializer
+from .models import Workflow, WorkflowLog, WorkflowChain
+from .serializers import (
+    WorkflowSerializer, WorkflowLogSerializer, WorkflowTraceSerializer
+)
 
 logger = logging.getLogger(__name__)
 
@@ -161,3 +163,22 @@ class WorkflowLogViewSet(
     filterset_fields   = ['status', 'workflow', 'trigger_event']
     search_fields      = ['message', 'object_id']
     ordering_fields    = ['executed_at']
+
+
+class WorkflowTraceViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Advanced Trace Viewer (Requirement 5)
+    GET /api/workflow-traces/
+    GET /api/workflow-traces/{chain_id}/
+    
+    Returns full visibility into an execution chain:
+    - Triggering events
+    - All workflows in the chain
+    - Every action and its status (success/fail/compensated)
+    """
+    queryset           = WorkflowChain.objects.all().order_by('-created_at')
+    serializer_class   = WorkflowTraceSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field       = 'chain_id'
+    filterset_fields   = ['parent_chain_id', 'is_active']
+    search_fields      = ['chain_id', 'root_event_key']

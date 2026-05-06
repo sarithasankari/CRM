@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Clock, Calendar, AlertCircle, X, 
   Trash2, CheckCircle2, ListTodo, MoreHorizontal,
   ChevronRight, Activity, PhoneCall, Mail, FileText, CheckSquare,
   Settings, Zap, List, LayoutGrid, Check, Play, Edit3,
-  Video, Users, Loader2
+  Video, Users, Loader2, Timer, ArrowRight
 } from 'lucide-react';
-import { tasksApi, leadsApi } from '../services/api';
+import { tasksApi, leadsApi, dealsApi } from '../services/api';
+
 import { useToast } from '../context/ToastContext';
+import { useNavigate } from 'react-router-dom';
+import { useWebSocket } from '../context/WebSocketContext';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -52,30 +55,63 @@ export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState('Current Tasks');
+  const navigate = useNavigate();
   const [isAutomationModalOpen, setIsAutomationModalOpen] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState([]);
   const [layout, setLayout] = useState('list');
   const [autoMode, setAutoMode] = useState(true);
-  
   const [selectedTask, setSelectedTask] = useState(null);
+  
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerLogs, setDrawerLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false); // For bulk actions/global state
+  const [actionLoadingId, setActionLoadingId] = useState(null); // For individual task actions
+
+  // Deal Creation Flow
+  const [isDealModalOpen, setIsDealModalOpen] = useState(false);
+  const [dealData, setDealData] = useState({ title: '', value: '', expected_close_date: '', lead_id: '' });
+  const [isCreatingDeal, setIsCreatingDeal] = useState(false);
+
+  
+  // Timer for live execution in drawer
+  const [elapsed, setElapsed] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (timerRunning) {
+      timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [timerRunning]);
+
+  const formattedTime = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
   
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newTask, setNewTask] = useState({ title: '', due_date: '', priority: 'medium', status: 'not_started', description: '', task_type: 'todo' });
 
   const { addToast } = useToast();
+  const { lastMessage } = useWebSocket();
 
-  const fetchTasks = async () => {
-    setIsLoading(true);
+  // Real-time updates sync
+  useEffect(() => {
+    if (lastMessage) {
+      fetchTasks(true); // Silent refresh for WebSocket updates
+    }
+  }, [lastMessage]);
+
+  const fetchTasks = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       const data = await tasksApi.getAll();
       setTasks(data.results || data);
     } catch (err) {
-      addToast("We couldn't fetch your tasks, sorry about that", "error");
+      if (!silent) addToast("We couldn't fetch your tasks, sorry about that", "error");
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
@@ -106,29 +142,149 @@ export default function Tasks() {
   }, []);
 
   useEffect(() => { fetchTasks(); }, []);
+  
+  // Sync selectedTask when main tasks list changes (to keep drawer fresh)
+  useEffect(() => {
+    if (selectedTask) {
+      const updated = tasks.find(t => t.id === selectedTask.id);
+      if (updated && JSON.stringify(updated) !== JSON.stringify(selectedTask)) {
+        setSelectedTask(updated);
+      }
+    }
+  }, [tasks, selectedTask]);
 
   const openDrawer = (task) => {
-    setSelectedTask(task);
+    // Always fetch latest data before opening drawer to avoid stale info
+    const latestTask = tasks.find(t => t.id === task.id) || task;
+    setSelectedTask(latestTask);
     setIsDrawerOpen(true);
     setDrawerLogs([]);
-    fetchActivityLogs(task.id);
+    setElapsed(0);
+    setTimerRunning(latestTask.status === 'in_progress' && latestTask.task_type === 'call');
+    fetchActivityLogs(latestTask.id);
   };
 
-  const handleStatusChange = async (taskId, newStatus) => {
-    // Optimistic UI update
-    setTasks(prevTasks => prevTasks.map(t => t.id.toString() === taskId.toString() ? { ...t, status: newStatus } : t));
+  const handleStartCall = async (task) => {
+    if (actionLoadingId) return;
+    setActionLoadingId(task.id);
     
-    if (selectedTask?.id.toString() === taskId.toString()) {
-      setSelectedTask(prev => ({ ...prev, status: newStatus }));
-    }
+    // Optimistic Update
+    const previousTask = { ...task };
+    setSelectedTask({ ...task, status: 'in_progress' });
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'in_progress' } : t));
 
     try {
-      await tasksApi.patch(taskId, { status: newStatus });
-      addToast("Task status updated perfectly", "success");
+      await tasksApi.startCall(task.id);
+      setTimerRunning(true);
+      setElapsed(0);
+      addToast(`Call started: ${task.title}`, 'info');
+      // No need to fetchTasks here as we updated optimistically
+    } catch {
+      // Rollback
+      setSelectedTask(previousTask);
+      setTasks(prev => prev.map(t => t.id === task.id ? previousTask : t));
+      addToast('Failed to start call', 'error');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const [isSubmittingOutcome, setIsSubmittingOutcome] = useState(false);
+
+  const handleCompleteWithOutcome = async (task, outcome) => {
+    if (isSubmittingOutcome) return;
+    setIsSubmittingOutcome(true);
+    try {
+      const res = await tasksApi.completeTask(task.id, { outcome });
+      addToast(`Task completed: ${outcome}`, 'success');
+      
+      // Trigger Deal Modal if it's a successful meeting
+      if (task.task_type === 'meeting' && outcome === 'success' && task.lead) {
+        setDealData({
+          title: `${task.lead_name || 'New'} Deal`,
+          value: '',
+          expected_close_date: dayjs().add(30, 'day').format('YYYY-MM-DD'),
+          lead: task.lead
+        });
+        setIsDealModalOpen(true);
+      }
+
+
+      if (res.workflow_actions?.length) {
+        res.workflow_actions.forEach(a => addToast(`⚡ ${a}`, 'info'));
+      }
+      setTimerRunning(false);
+      fetchTasks();
+      setIsDrawerOpen(false);
+    } catch {
+      addToast('Failed to complete task', 'error');
+    } finally {
+      setIsSubmittingOutcome(false);
+    }
+  };
+
+  const handleCreateDeal = async (e) => {
+    e.preventDefault();
+    if (!dealData.value || !dealData.expected_close_date) {
+      addToast("Please enter deal amount and expected close date.", "error");
+      return;
+    }
+    setIsCreatingDeal(true);
+    try {
+      const payload = {
+        title: dealData.title,
+        value: parseFloat(dealData.value),
+        expected_close_date: dealData.expected_close_date,
+        lead: dealData.lead,
+        stage: 'Qualification',
+      };
+      // We'll use dealsApi.create to create the deal after meeting.
+      await dealsApi.create(payload); 
+      addToast("Deal created successfully!", "success");
+      setIsDealModalOpen(false);
       fetchTasks();
     } catch (err) {
-      addToast("We couldn't update the status", "error");
-      fetchTasks();
+      addToast("Failed to create deal.", "error");
+    } finally {
+      setIsCreatingDeal(false);
+    }
+  };
+
+
+
+  const handleStatusChange = async (taskId, newStatus) => {
+    if (actionLoadingId === taskId) return;
+    
+    const previousTasks = [...tasks];
+    const previousSelected = selectedTask ? { ...selectedTask } : null;
+    const isActive = newStatus !== 'completed';
+
+    // Optimistic UI update
+    setTasks(prevTasks => prevTasks.map(t => 
+      t.id.toString() === taskId.toString() 
+        ? { ...t, status: newStatus, is_active: isActive } 
+        : t
+    ));
+    
+    if (selectedTask?.id.toString() === taskId.toString()) {
+      setSelectedTask(prev => ({ ...prev, status: newStatus, is_active: isActive }));
+    }
+
+    setActionLoadingId(taskId);
+    try {
+      await tasksApi.patch(taskId, { status: newStatus });
+      addToast(`Status updated to ${newStatus.replace('_', ' ')}`, "success");
+      // Silent fetch to sync any backend-side changes (like automation results)
+      fetchTasks(true); 
+    } catch (err) {
+      // Rollback
+      setTasks(previousTasks);
+      if (previousSelected && previousSelected.id.toString() === taskId.toString()) {
+        setSelectedTask(previousSelected);
+      }
+      addToast("Failed to update status", "error");
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -137,9 +293,16 @@ export default function Tasks() {
     const { source, destination, draggableId } = result;
     
     if (source.droppableId !== destination.droppableId) {
+      const newStatus = destination.droppableId;
+      const isActive = newStatus !== 'completed';
+      
       // Optimistic update
-      setTasks(prev => prev.map(t => t.id.toString() === draggableId ? { ...t, status: destination.droppableId } : t));
-      handleStatusChange(draggableId, destination.droppableId);
+      setTasks(prev => prev.map(t => 
+        t.id.toString() === draggableId 
+          ? { ...t, status: newStatus, is_active: isActive } 
+          : t
+      ));
+      handleStatusChange(draggableId, newStatus);
     }
   };
 
@@ -155,14 +318,27 @@ export default function Tasks() {
   };
 
   const handleDelete = async (id) => {
+    if (actionLoadingId === id) return;
     if (!window.confirm("Are you sure you'd like to remove this task?")) return;
+    
+    const previousTasks = [...tasks];
+    // Optimistic removal (safe ID comparison)
+    setTasks(prev => prev.filter(t => t.id.toString() !== id.toString()));
+    if (selectedTask?.id.toString() === id.toString()) setIsDrawerOpen(false);
+
+    setActionLoadingId(id);
     try {
       await tasksApi.delete(id);
-      addToast("Task removed");
-      if (selectedTask?.id === id) setIsDrawerOpen(false);
-      fetchTasks();
+      addToast("Task removed successfully", "success");
+      // Clean up selection if needed
+      setSelectedTasks(prev => prev.filter(tid => tid !== id));
     } catch (err) {
-      addToast("We couldn't remove the task", "error");
+      // Rollback
+      setTasks(previousTasks);
+      if (selectedTask?.id === id) setIsDrawerOpen(true);
+      addToast("Failed to remove the task", "error");
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -173,16 +349,79 @@ export default function Tasks() {
   };
 
   const selectAllTasks = (currentFilteredTasks) => {
-    if (selectedTasks.length === currentFilteredTasks.length) {
+    if (selectedTasks.length === currentFilteredTasks.length && currentFilteredTasks.length > 0) {
       setSelectedTasks([]);
     } else {
       setSelectedTasks(currentFilteredTasks.map(t => t.id));
     }
   };
 
-    const filteredTasks = tasks.filter(task => {
-    // Hide inactive tasks from the active UI
-    if (task.status === 'completed' || task.is_active === false) return false;
+  const handleBulkDelete = async () => {
+    if (!selectedTasks.length || isProcessing) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedTasks.length} tasks?`)) return;
+    
+    setIsProcessing(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      const results = await Promise.allSettled(selectedTasks.map(id => tasksApi.delete(id)));
+      results.forEach(res => {
+        if (res.status === 'fulfilled') successCount++;
+        else failCount++;
+      });
+
+      if (failCount === 0) {
+        addToast(`Successfully deleted ${successCount} tasks`, "success");
+      } else {
+        addToast(`${successCount} deleted, ${failCount} failed`, failCount > 0 ? "warning" : "success");
+      }
+      
+      setSelectedTasks([]);
+      fetchTasks();
+    } catch (err) {
+      addToast("Bulk delete operation failed", "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleBulkStatusUpdate = async (status) => {
+    if (!selectedTasks.length || isProcessing) return;
+    
+    setIsProcessing(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      const results = await Promise.allSettled(selectedTasks.map(id => tasksApi.patch(id, { status })));
+      results.forEach(res => {
+        if (res.status === 'fulfilled') successCount++;
+        else failCount++;
+      });
+
+      if (failCount === 0) {
+        addToast(`Updated ${successCount} tasks to ${status.replace('_', ' ')}`, "success");
+      } else {
+        addToast(`${successCount} updated, ${failCount} failed`, "warning");
+      }
+      
+      setSelectedTasks([]);
+      fetchTasks();
+    } catch (err) {
+      addToast("Bulk update operation failed", "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const filteredTasks = tasks.filter(task => {
+    if (view === 'Completed Tasks') return task.status === 'completed' || task.is_active === false;
+
+    // For all other views:
+    // 1. Hide inactive/completed tasks in List view to keep it clean
+    // 2. SHOW them in Kanban view so the "Completed" column isn't empty
+    if (layout !== 'kanban' && (task.status === 'completed' || task.is_active === false)) return false;
     
     if (view === 'My Focus Today') {
       const isUrgentOrHigh = ['urgent', 'high'].includes(task.priority);
@@ -218,7 +457,7 @@ export default function Tasks() {
     }
   };
 
-  const views = ['My Focus Today', 'Current Tasks', 'Today Tasks', 'Overdue Tasks'];
+  const views = ['My Focus Today', 'Current Tasks', 'Today Tasks', 'Overdue Tasks', 'Completed Tasks'];
 
   return (
     <div className="h-full flex bg-slate-50 overflow-hidden font-sans">
@@ -296,8 +535,24 @@ export default function Tasks() {
             {selectedTasks.length > 0 && (
               <div className="flex items-center bg-blue-50 px-3 py-1.5 rounded-md border border-blue-100 mr-2 animate-fade-in">
                 <span className="text-sm text-blue-700 font-medium mr-3">{selectedTasks.length} selected</span>
-                <button className="text-slate-500 hover:text-blue-700 px-2 text-sm border-r border-blue-200">Update</button>
-                <button className="text-rose-500 hover:text-rose-700 px-2 text-sm font-medium">Delete</button>
+                <div className="flex items-center border-r border-blue-200 pr-2 mr-2">
+                  <select 
+                    onChange={(e) => handleBulkStatusUpdate(e.target.value)}
+                    className="bg-transparent text-xs font-semibold text-blue-700 outline-none cursor-pointer"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Update Status</option>
+                    <option value="not_started">Not Started</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+                <button 
+                  onClick={handleBulkDelete}
+                  className="text-rose-500 hover:text-rose-700 px-2 text-sm font-medium"
+                >
+                  Delete
+                </button>
               </div>
             )}
             <div className="flex items-center space-x-2 mr-4 border-r border-slate-200 pr-4">
@@ -314,19 +569,29 @@ export default function Tasks() {
             </div>
             
             <button 
+              onClick={fetchTasks}
+              disabled={isLoading}
+              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+              title="Refresh Tasks"
+            >
+              <Activity className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
+            <button 
               onClick={() => setIsAutomationModalOpen(true)}
               className="inline-flex items-center px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-md font-medium text-sm hover:bg-slate-50 transition-colors shadow-sm"
             >
               <Zap className="mr-2 w-4 h-4 text-amber-500" />
               Automations
             </button>
-            <button 
-              onClick={() => setIsCreateModalOpen(true)}
-              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md font-medium text-sm shadow-sm hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="mr-2 w-4 h-4" />
-              Add Task
-            </button>
+            {!autoMode && (
+              <button 
+                onClick={() => setIsCreateModalOpen(true)}
+                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md font-medium text-sm shadow-sm hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="mr-2 w-4 h-4" />
+                Add Task
+              </button>
+            )}
           </div>
         </div>
 
@@ -424,8 +689,9 @@ export default function Tasks() {
                           <td className="px-6 py-4 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                             <select
                               value={task.status}
+                              disabled={actionLoadingId === task.id}
                               onChange={(e) => handleStatusChange(task.id, e.target.value)}
-                              className={`text-xs font-semibold px-2.5 py-1 rounded-full border outline-none cursor-pointer appearance-none ${getStatusColor(task.status)}`}
+                              className={`text-xs font-semibold px-2.5 py-1 rounded-full border outline-none cursor-pointer appearance-none transition-opacity ${getStatusColor(task.status)} ${actionLoadingId === task.id ? 'opacity-50 cursor-wait' : ''}`}
                             >
                               <option value="not_started">Not Started</option>
                               <option value="in_progress">In Progress</option>
@@ -549,15 +815,25 @@ export default function Tasks() {
             <div className="flex items-center space-x-2 flex-1 min-w-0">
               <button 
                 onClick={() => handleStatusChange(selectedTask.id, selectedTask.status === 'completed' ? 'in_progress' : 'completed')}
-                className={`flex-shrink-0 p-1.5 rounded-md transition-colors ${selectedTask.status === 'completed' ? 'text-emerald-600 bg-emerald-100' : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600'}`}
+                disabled={actionLoadingId === selectedTask.id}
+                className={`flex-shrink-0 p-1.5 rounded-md transition-all ${selectedTask.status === 'completed' ? 'text-emerald-600 bg-emerald-100' : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600'} ${actionLoadingId === selectedTask.id ? 'opacity-50 animate-pulse' : ''}`}
                 title="Mark Complete"
               >
-                <CheckCircle2 className="w-5 h-5" />
+                {actionLoadingId === selectedTask.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
               </button>
               <h3 className="text-lg font-semibold text-slate-900 truncate pr-4">{selectedTask.title}</h3>
             </div>
+            {timerRunning && (
+              <div className="px-3 py-1 bg-rose-50 text-rose-600 rounded-full text-xs font-black animate-pulse flex items-center border border-rose-200">
+                <Timer className="w-3 h-3 mr-1.5" /> {formattedTime}
+              </div>
+            )}
             <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
-              <button onClick={() => handleDelete(selectedTask.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors">
+              <button 
+                onClick={() => handleDelete(selectedTask.id)} 
+                disabled={actionLoadingId === selectedTask.id}
+                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors disabled:opacity-30"
+              >
                 <Trash2 className="w-5 h-5" />
               </button>
               <button onClick={() => setIsDrawerOpen(false)} className="flex items-center px-2 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded transition-colors ml-2">
@@ -598,6 +874,52 @@ export default function Tasks() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* Execution Controls */}
+            {selectedTask.status !== 'completed' && (
+              <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Workflow Execution</p>
+                
+                {selectedTask.task_type === 'call' && !timerRunning && (
+                  <button 
+                    onClick={() => handleStartCall(selectedTask)}
+                    className="w-full py-3 bg-blue-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
+                  >
+                    <Play className="w-4 h-4" /> Start Call Execution
+                  </button>
+                )}
+
+                {(timerRunning || selectedTask.status === 'in_progress' || selectedTask.task_type !== 'call') && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold text-slate-300">Record Outcome:</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { val: 'interested',    label: 'Interested', icon: '🟢', nextAction: 'Schedule Meeting' },
+                        { val: 'no_response',   label: 'No Answer',  icon: '🟡', nextAction: 'Retry Call Tomorrow' },
+                        { val: 'success',       label: 'Success',    icon: '✅', nextAction: 'Create Proposal' },
+                        { val: 'failed',        label: 'Failed',     icon: '❌', nextAction: 'Log Failure' },
+                      ].map(opt => (
+                        <button 
+                          key={opt.val}
+                          disabled={isSubmittingOutcome}
+                          onClick={() => handleCompleteWithOutcome(selectedTask, opt.val)}
+                          className="py-3 px-4 bg-white/10 hover:bg-white/20 rounded-xl text-left transition-all border border-white/5 disabled:opacity-50 disabled:cursor-not-allowed group flex flex-col"
+                        >
+                          <span className="text-xs font-bold flex items-center gap-2">
+                            {opt.icon} {opt.label}
+                            {isSubmittingOutcome ? <Loader2 className="w-3 h-3 animate-spin ml-auto" /> : <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity ml-auto" />}
+                          </span>
+                          <span className="text-[9px] text-slate-400 mt-1 font-medium italic group-hover:text-slate-300">
+                            → {opt.nextAction}
+                          </span>
+                        </button>
+                      ))}
+
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -642,17 +964,20 @@ export default function Tasks() {
             {selectedTask.lead_name && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Related To (Lead)</p>
-                <div className="flex items-center justify-between bg-indigo-50 border border-indigo-100 p-3 rounded-lg">
+                <div 
+                  onClick={() => selectedTask.lead && navigate(`/leads?id=${selectedTask.lead}`)}
+                  className="flex items-center justify-between bg-indigo-50 border border-indigo-100 p-3 rounded-lg cursor-pointer hover:bg-indigo-100 transition-all group"
+                >
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center font-bold mr-3">
+                    <div className="w-8 h-8 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center font-bold mr-3 group-hover:scale-110 transition-transform">
                       {selectedTask.lead_name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-indigo-900">{selectedTask.lead_name}</p>
+                      <p className="text-sm font-semibold text-indigo-900 group-hover:text-blue-700">{selectedTask.lead_name}</p>
                       <p className="text-xs text-indigo-700/70 capitalize">{selectedTask.stage || 'Lead'}</p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-indigo-400" />
+                  <ChevronRight className="w-5 h-5 text-indigo-400 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
                 </div>
               </div>
             )}
@@ -773,6 +1098,79 @@ export default function Tasks() {
         </div>
       )}
       
+      {/* Create Deal Modal (After Meeting Success) */}
+      {isDealModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h2 className="text-xl font-black text-slate-900">Create Deal</h2>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Record deal details to move to Proposal</p>
+              </div>
+              <button onClick={() => setIsDealModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all border border-slate-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateDeal} className="p-8 space-y-5">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Deal Name *</label>
+                <input 
+                  required 
+                  type="text" 
+                  value={dealData.title} 
+                  onChange={e => setDealData({...dealData, title: e.target.value})} 
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" 
+                  placeholder="e.g. Enterprise License Deal"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Amount ($) *</label>
+                  <input 
+                    required 
+                    type="number" 
+                    value={dealData.value} 
+                    onChange={e => setDealData({...dealData, value: e.target.value})} 
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" 
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Expected Close *</label>
+                  <input 
+                    required 
+                    type="date" 
+                    value={dealData.expected_close_date} 
+                    onChange={e => setDealData({...dealData, expected_close_date: e.target.value})} 
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" 
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex flex-col gap-3">
+                <button 
+                  type="submit" 
+                  disabled={isCreatingDeal}
+                  className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center disabled:opacity-50"
+                >
+                  {isCreatingDeal ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-4 h-4 mr-2 fill-current" />}
+                  Create Deal & Continue
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setIsDealModalOpen(false)}
+                  className="w-full py-3 text-slate-400 text-xs font-bold hover:text-slate-600 transition-colors"
+                >
+                  Skip for now
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Create Task Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-fade-in p-4">
@@ -885,6 +1283,8 @@ export default function Tasks() {
           </div>
         </div>
       )}
+
+
 
     </div>
   );

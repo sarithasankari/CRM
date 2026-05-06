@@ -17,17 +17,9 @@ TRIGGER_ALIASES = {
 }
 
 
-def trigger_workflows(module_name, trigger_event, instance, extra_context=None):
+def trigger_workflows(module_name, trigger_event, instance, extra_context=None, chain_id=None):
     """
-    Workflow execution entry point.
-
-    Signals/views emit one normalized event. The engine fetches matching active
-    workflows, evaluates conditions, and executes ordered actions.
-    
-    Supports:
-      - Debouncing (configurable per workflow)
-      - Idempotency via action fingerprinting
-      - Task-driven automation (on_task_complete chaining)
+    Workflow execution entry point with Chain Tracking.
     """
     from workflows.models import Workflow, WorkflowLog
 
@@ -38,6 +30,7 @@ def trigger_workflows(module_name, trigger_event, instance, extra_context=None):
         'trigger': trigger,
         'legacy_trigger': trigger_event,
         'extra': extra_context,
+        'chain_id': chain_id,
     }
     execution_key = _make_execution_key(module_name, trigger, instance, extra_context)
 
@@ -48,7 +41,7 @@ def trigger_workflows(module_name, trigger_event, instance, extra_context=None):
     ).prefetch_related('conditions', 'actions__specific_user')
 
     for workflow in workflows:
-        _run_workflow(workflow, instance, event, execution_key, WorkflowLog)
+        _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_id=chain_id)
 
 
 def normalize_trigger(trigger_event):
@@ -71,10 +64,25 @@ def _make_execution_key(module_name, trigger, instance, extra_context):
     return hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _run_workflow(workflow, instance, event, execution_key, WorkflowLog):
-    """Execute a single workflow with condition evaluation and action execution."""
+def _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_id=None):
+    """Execute a single workflow with granular action logging and partial failure handling."""
+    from workflows.models import WorkflowActionLog, WorkflowDebounce
+    
+    log = None
     try:
-        # Check debounce
+        # 0. Chain Guard: Prevent same workflow from running multiple times on same object in same chain
+        if chain_id:
+            from workflows.models import WorkflowLog
+            if WorkflowLog.objects.filter(
+                workflow=workflow, 
+                object_id=str(instance.pk), 
+                chain_id=chain_id,
+                status__in=['success', 'partial', 'failure']
+            ).exists():
+                logger.info(f"[Workflow] Guard: Skipping {workflow.name} for {instance.pk} (already ran in chain {chain_id})")
+                return
+
+        # 1. Check debounce
         if _is_debounced(workflow, instance):
             WorkflowLog.objects.create(
                 workflow=workflow,
@@ -82,11 +90,12 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog):
                 trigger_event=event['trigger'],
                 object_id=str(instance.pk),
                 execution_key=execution_key,
+                chain_id=chain_id or '',
                 message='Debounced: executed too recently',
             )
             return
 
-        # Evaluate conditions
+        # 2. Evaluate conditions
         passed, reason = evaluate_conditions(workflow, instance, event.get('extra', {}))
         if not passed:
             WorkflowLog.objects.create(
@@ -95,44 +104,109 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog):
                 trigger_event=event['trigger'],
                 object_id=str(instance.pk),
                 execution_key=execution_key,
+                chain_id=chain_id or '',
                 message=f"Conditions not met: {reason}",
             )
             return
 
-        # Execute actions
-        successes = []
-        errors = []
-        with transaction.atomic():
-            for action in workflow.actions.all().order_by('order', 'pk'):
-                try:
-                    result = execute_action(action, instance, event)
-                    if result.status == 'skipped':
-                        successes.append(f"{result.name}: {result.message}")
-                    else:
-                        successes.append(f"{result.name}: {result.message or 'ok'}")
-                except Exception as exc:
-                    logger.error(
-                        "[Workflow] action failed workflow=%s action=%s object=%s: %s",
-                        workflow.pk, action.pk, instance.pk, exc, exc_info=True
-                    )
-                    errors.append(f"{action.action_type}: {exc}")
-
-        # Determine final status
-        status = 'success'
-        if errors and successes:
-            status = 'partial'
-        elif errors:
-            status = 'failure'
-
-        # Log workflow execution
-        WorkflowLog.objects.create(
+        # 3. Create the Main Workflow Log
+        log = WorkflowLog.objects.create(
             workflow=workflow,
-            status=status,
+            status='failure',  # Initial state
             trigger_event=event['trigger'],
             object_id=str(instance.pk),
             execution_key=execution_key,
-            message="; ".join(errors or successes or ['No actions executed']),
+            chain_id=chain_id or '',
         )
+
+        # 4. Execute actions with retry logic
+        success_count = 0
+        failure_count = 0
+        completed_actions = []  # Track for compensation logic
+        
+        actions = workflow.actions.all().order_by('order', 'pk')
+        for action in actions:
+            action_status = 'failure'
+            action_message = ''
+            error_details = ''
+            
+            # 4a. Idempotency Check (Requirement 2)
+            idempotency_key = _make_action_idempotency_key(action, instance, event)
+            from workflows.models import WorkflowActionExecution
+            if WorkflowActionExecution.objects.filter(fingerprint=idempotency_key).exists():
+                logger.info(f"[Workflow] Action {action.pk} already executed for this chain. Skipping.")
+                success_count += 1
+                continue
+
+            # 4b. Simple retry loop (Max 3 attempts for transient errors)
+            for attempt in range(3):
+                try:
+                    # Use a sub-transaction (savepoint) for each action
+                    with transaction.atomic():
+                        # Pass chain_id to actions so they can propagate it if they trigger new events
+                        event['chain_id'] = chain_id
+                        result = execute_action(action, instance, event)
+                        action_status = result.status
+                        action_message = result.message
+                        
+                        # Record successful execution for idempotency
+                        if action_status in {'success', 'skipped'}:
+                            WorkflowActionExecution.objects.create(
+                                action=action,
+                                workflow=workflow,
+                                fingerprint=idempotency_key,
+                                object_key=f"{instance._meta.label_lower}:{instance.pk}"
+                            )
+                            completed_actions.append((action, result))
+                        break  # Success!
+                except Exception as exc:
+                    action_message = str(exc)
+                    error_details = f"Attempt {attempt+1} failed: {exc}"
+                    if attempt < 2:
+                        logger.warning(f"[Workflow] Retrying action {action.pk} (Attempt {attempt+2}) due to: {exc}")
+                        continue
+                    logger.error(f"[Workflow] Permanent failure for action {action.pk}: {exc}", exc_info=True)
+
+            # Log granular action result
+            WorkflowActionLog.objects.create(
+                workflow_log=log,
+                action=action,
+                status=action_status,
+                message=action_message,
+                error_details=error_details,
+                retry_count=attempt,
+                idempotency_key=idempotency_key
+            )
+            
+            if action_status in {'success', 'skipped'}:
+                success_count += 1
+            else:
+                failure_count += 1
+                # Permanent failure in a multi-step workflow triggers compensation (Requirement 4)
+                if workflow.actions.count() > 1:
+                    logger.warning(f"[Workflow] Permanent failure in multi-step workflow {workflow.name}. Triggering compensation.")
+                    _compensate_workflow(completed_actions, instance, event)
+                    break # Stop executing further actions in this workflow
+
+        # 5. Determine final status
+        if failure_count == 0:
+            log.status = 'success'
+        elif success_count > 0:
+            log.status = 'partial'
+        else:
+            log.status = 'failure'
+        
+        log.message = f"Actions: {success_count} succeeded, {failure_count} failed."
+        log.save(update_fields=['status', 'message', 'executed_at'])
+
+        # 6. Update debounce record
+        if log.status in {'success', 'partial'}:
+            object_key = f"{instance._meta.label_lower}:{instance.pk}"
+            WorkflowDebounce.objects.update_or_create(
+                workflow=workflow,
+                object_key=object_key,
+                defaults={'execution_key': execution_key}
+            )
     except Exception as exc:
         logger.error("[Workflow] engine failed workflow=%s: %s", workflow.pk, exc, exc_info=True)
         try:
@@ -219,13 +293,180 @@ def apply_operator(operator, value, expected):
     if operator == 'is_not_empty':
         return value not in (None, '', [], {})
     return False
-
-
 def _resolve_field(instance, field_path):
-    """Resolve nested field paths (e.g., 'contact.email')."""
+    """
+    Resolve a potentially nested field path on an instance.
+    Example: 'contact.account.name' -> instance.contact.account.name
+    """
+    if not field_path:
+        return None
+    
+    parts = field_path.split('.')
     value = instance
-    for part in field_path.split('.'):
-        if value is None:
+    for part in parts:
+        try:
+            # Handle both attributes and dict-like items if needed
+            if hasattr(value, part):
+                value = getattr(value, part)
+            elif isinstance(value, dict):
+                value = value.get(part)
+            else:
+                return None
+        except Exception:
             return None
-        value = getattr(value, part, None)
+    
     return value
+
+
+def _make_action_idempotency_key(action, instance, event):
+    """Generate a unique fingerprint for an action execution within a chain."""
+    import hashlib
+    import json
+    
+    raw = {
+        'action_id': action.pk,
+        'object_id': str(instance.pk),
+        'chain_id': event.get('chain_id', 'no_chain'),
+        'trigger': event.get('trigger', '')
+    }
+    payload = json.dumps(raw, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _compensate_workflow(completed_actions, instance, event):
+    """
+    Roll back successfully completed actions if a subsequent action in the same 
+    workflow fails permanently. Executes compensation logic in reverse order.
+    """
+    from .actions import execute_compensation
+    
+    # Iterate in reverse order of completion
+    for action, result in reversed(completed_actions):
+        if not action.compensation_action:
+            logger.info(f"[Compensation] No rollback logic for action {action.pk}. Skipping.")
+            continue
+            
+        try:
+            logger.info(f"[Compensation] Rolling back action {action.pk}...")
+            with transaction.atomic():
+                execute_compensation(action, instance, event, result)
+        except Exception as exc:
+            logger.error(f"[Compensation] Rollback failed for action {action.pk}: {exc}", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# NEW: WorkflowRule Engine (Config-driven / Production-grade)
+# ---------------------------------------------------------------------------
+
+def execute_workflow_rules(task, chain_id=None):
+    """
+    Unified entry point for dynamic, config-driven task automation.
+    Fetches WorkflowRule records based on task_type and outcome.
+    """
+    from workflows.models import WorkflowRule, WorkflowExecutionLog, WorkflowActionLog
+    from tasks.models import Task
+    
+    rules = WorkflowRule.objects.filter(
+        trigger_task_type=task.task_type,
+        trigger_outcome=task.outcome,
+        is_active=True
+    )
+    
+    # Special case for meeting success (legacy hardcoded logic)
+    if not rules.exists() and not (task.task_type == 'meeting' and task.outcome == 'success'):
+        return []
+
+    actions_taken = []
+    
+    # 1. Root-level safety guard: meetings always require deals
+    if task.task_type == 'meeting' and task.outcome == 'success' and task.lead:
+        from deals.models import Deal
+        if not Deal.objects.filter(lead=task.lead, is_active=True).exists():
+            from django.utils import timezone
+            task.lead.deal_required = True
+            task.lead.deal_required_at = timezone.now()
+            task.lead.save(update_fields=['deal_required', 'deal_required_at'])
+            actions_taken.append("Marked Deal Required on Lead")
+
+    # 2. Process Rules
+    for rule in rules:
+        try:
+            with transaction.atomic():
+                # Log execution start
+                exec_log = WorkflowExecutionLog.objects.create(
+                    task=task,
+                    rule=rule,
+                    status='success'  # Default, updated if failure
+                )
+                
+                # Process each action in the JSON config
+                for action_cfg in rule.actions:
+                    action_type = action_cfg.get('type')
+                    action_status = 'success'
+                    action_message = ''
+                    
+                    try:
+                        if action_type == 'update_lead':
+                            if task.lead:
+                                for field, value in action_cfg.items():
+                                    if field != 'type':
+                                        setattr(task.lead, field, value)
+                                # Pass chain_id via instance attribute for signals to pick up
+                                task.lead._chain_id = chain_id
+                                task.lead.save()
+                                action_message = f"Updated lead {task.lead.id}"
+                                
+                        elif action_type == 'create_task':
+                            target_type = action_cfg.get('task_type', 'todo')
+                            target_title = action_cfg.get('title') or f"Follow-up: {task.title}"
+                            
+                            # Idempotency check: same lead, same type, same title?
+                            existing = Task.objects.filter(
+                                lead=task.lead,
+                                task_type=target_type,
+                                title=target_title,
+                                is_active=True
+                            ).exists()
+                            
+                            if not existing:
+                                from django.utils import timezone
+                                new_task = Task.objects.create(
+                                    lead=task.lead,
+                                    task_type=target_type,
+                                    title=target_title,
+                                    priority=action_cfg.get('priority', 'medium'),
+                                    due_date=timezone.now() + timedelta(days=action_cfg.get('due_in_days', 1)),
+                                    assigned_to=task.assigned_to,
+                                    status='not_started'
+                                )
+                                action_message = f"Created task {new_task.id} ({target_type})"
+                            else:
+                                action_status = 'skipped'
+                                action_message = f"Skipped duplicate task: {target_title}"
+                        
+                        actions_taken.append(action_message)
+                        
+                    except Exception as exc:
+                        action_status = 'failure'
+                        action_message = str(exc)
+                        logger.error(f"[WorkflowRule] Action failed: {exc}")
+
+                    # Note: WorkflowRule doesn't have WorkflowAction objects, 
+                    # but we can still log granularly if needed. 
+                    # For now, we update the main execution log.
+
+                if any(msg for msg in actions_taken if "failed" in msg.lower()):
+                    exec_log.status = 'failed'
+                    exec_log.save(update_fields=['status'])
+
+        except Exception as exc:
+            logger.error("[WorkflowRule] Execution failed task=%s rule=%s: %s", task.pk, rule.pk, exc, exc_info=True)
+            WorkflowExecutionLog.objects.create(
+                task=task,
+                rule=rule,
+                status='failed',
+                error_message=str(exc)
+            )
+
+    return actions_taken
+

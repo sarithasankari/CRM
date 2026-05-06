@@ -42,7 +42,7 @@ export default function Header() {
       else if (q.includes('deal'))  navigate('/deals');
       else if (q.includes('contact')) navigate('/contacts');
       else if (q.includes('workflow')) navigate('/workflows');
-      else if (q.includes('report'))  navigate('/reports');
+      else if (q.includes('report'))  navigate('/analytics');
       else navigate('/leads');  // default
       setSearchQuery('');
     }
@@ -52,7 +52,7 @@ export default function Header() {
     { label: 'New Lead',    icon: <User className="w-4 h-4" />,     path: '/leads' },
     { label: 'New Deal',    icon: <Briefcase className="w-4 h-4" />, path: '/deals' },
     { label: 'New Contact', icon: <Users className="w-4 h-4" />,    path: '/contacts' },
-    { label: 'Reports',     icon: <BarChart2 className="w-4 h-4" />, path: '/reports' },
+    { label: 'Reports',     icon: <BarChart2 className="w-4 h-4" />, path: '/analytics' },
     { label: 'Dashboard',   icon: <LayoutDashboard className="w-4 h-4" />, path: '/' },
   ];
 

@@ -10,10 +10,12 @@ from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
+import threading
+
 logger = logging.getLogger(__name__)
 
-# Track old state before save
-_task_pre_save_cache = {}
+# Thread-local storage to track old state before save
+_state = threading.local()
 
 
 @receiver(pre_save, sender='tasks.Task')
@@ -22,12 +24,12 @@ def task_pre_save(sender, instance, **kwargs):
     if instance.pk:
         try:
             old = sender.objects.get(pk=instance.pk)
-            _task_pre_save_cache[instance.pk] = {
+            setattr(_state, f'task_{instance.pk}', {
                 'status': old.status,
                 'outcome': old.outcome,
                 'priority': old.priority,
                 'is_active': old.is_active,
-            }
+            })
         except sender.DoesNotExist:
             pass
 
@@ -56,7 +58,11 @@ def task_post_save(sender, instance, created, **kwargs):
         }, user)
         return
 
-    old = _task_pre_save_cache.pop(instance.pk, {})
+    key = f'task_{instance.pk}'
+    old = getattr(_state, key, {})
+    if hasattr(_state, key):
+        delattr(_state, key)
+
     if not old:
         return
 
@@ -84,8 +90,11 @@ def task_post_save(sender, instance, created, **kwargs):
             'completed_at': str(instance.completed_at or timezone.now()),
         }, user)
 
-        # Fire the workflow engine (non-blocking, catches exceptions)
-        _fire_workflow_on_completion(instance)
+        # Note: The workflow engine is now triggered generically by 
+        # workflows/signals.py for all watched models (Task, Call, etc.)
+        # so we don't need a specific trigger here.
+        pass
+
 
 
 def _safe_log(ActivityLog, task, action_type, old_value, new_value, user):
@@ -102,24 +111,4 @@ def _safe_log(ActivityLog, task, action_type, old_value, new_value, user):
         logger.error("[Tasks] ActivityLog creation failed: %s", exc, exc_info=True)
 
 
-def _fire_workflow_on_completion(task):
-    """
-    Fire the workflow engine when a task completes.
-    This is the bridge between task outcomes and automated next steps.
-    Catches all exceptions so a workflow failure never breaks the task save.
-    """
-    try:
-        from workflows.engine import trigger_workflows
-        trigger_workflows(
-            module_name='task',
-            trigger_event='on_task_complete',
-            instance=task,
-            extra_context={
-                'task_type': task.task_type,
-                'outcome': task.outcome or '',
-                'lead_id': str(task.lead_id or ''),
-                'deal_id': str(task.deal_id or ''),
-            }
-        )
-    except Exception as exc:
-        logger.error("[Tasks] Workflow engine fire failed: %s", exc, exc_info=True)
+

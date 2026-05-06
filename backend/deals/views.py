@@ -28,10 +28,37 @@ class DealViewSet(viewsets.ModelViewSet):
         return base_qs.none()
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        from django.db import transaction
+        from rest_framework.exceptions import ValidationError
+        from leads.models import Lead
+
+        with transaction.atomic():
+            lead_id = serializer.initial_data.get('lead')
+            lead = None
+            if lead_id:
+                # Lock the lead record to prevent race conditions during creation
+                try:
+                    lead = Lead.objects.select_for_update().get(pk=lead_id)
+                except Lead.DoesNotExist:
+                    raise ValidationError({"lead": "Lead not found."})
+
+            # 1. Prevent Duplicate Active Deals
+            if lead and Deal.objects.filter(lead=lead, is_active=True).exists():
+                raise ValidationError({"lead": "An active deal already exists for this lead."})
+            
+            # 2. Save the deal (stage defaults to proposal in model)
+            deal = serializer.save(owner=self.request.user)
+            
+            # 3. Clear deal_required flag and timestamp
+            if lead:
+                lead.deal_required = False
+                lead.deal_required_at = None
+                lead.save(update_fields=['deal_required', 'deal_required_at'])
 
     def perform_update(self, serializer):
-        serializer.save()
+        from django.db import transaction
+        with transaction.atomic():
+            serializer.save()
 
 
 class ProductViewSet(viewsets.ModelViewSet):

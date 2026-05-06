@@ -350,6 +350,71 @@ WORKFLOW_9_ROUND_ROBIN = {
 
 
 # =============================================================================
+# WORKFLOW 10: Call Connected → Update Lead Status
+# =============================================================================
+WORKFLOW_10_CALL_CONNECTED = {
+    'name': 'Call Connected - Update Lead',
+    'description': 'When a call outcome is "connected", update lead status to "contacted"',
+    'module': 'call',
+    'trigger_event': 'on_task_complete', # Reusing this trigger for Call completion
+    'condition_logic': 'AND',
+    'is_active': True,
+  'conditions': [
+        {
+            'order': 1,
+            'field_name': 'outcome',
+            'operator': 'equals',
+            'value': 'interested'
+        }
+    ],
+    'actions': [
+        {
+            'order': 1,
+            'action_type': 'update_record',
+            'action_data': {
+                'target': 'lead',
+                'fields': {
+                    'status': 'contacted'
+                }
+            }
+        }
+    ]
+}
+
+# =============================================================================
+# WORKFLOW 11: Call Success → Qualify Lead
+# =============================================================================
+WORKFLOW_11_CALL_SUCCESS = {
+    'name': 'Call Success - Qualify Lead',
+    'description': 'When a call outcome is "success", automatically qualify the lead',
+    'module': 'call',
+    'trigger_event': 'on_task_complete',
+    'condition_logic': 'AND',
+    'is_active': True,
+    'conditions': [
+        {
+            'order': 1,
+            'field_name': 'outcome',
+            'operator': 'equals',
+            'value': 'success'
+        }
+    ],
+    'actions': [
+        {
+            'order': 1,
+            'action_type': 'update_record',
+            'action_data': {
+                'target': 'lead',
+                'fields': {
+                    'status': 'qualified'
+                }
+            }
+        }
+    ]
+}
+
+
+# =============================================================================
 # UTILITY FUNCTIONS
 # =============================================================================
 
@@ -368,6 +433,8 @@ def create_example_workflows():
         WORKFLOW_7_CONTACT_UPDATE,
         WORKFLOW_8_DEAL_WON,
         WORKFLOW_9_ROUND_ROBIN,
+        WORKFLOW_10_CALL_CONNECTED,
+        WORKFLOW_11_CALL_SUCCESS,
     ]
     
     created_count = 0
@@ -437,6 +504,8 @@ def list_example_workflows():
         WORKFLOW_7_CONTACT_UPDATE,
         WORKFLOW_8_DEAL_WON,
         WORKFLOW_9_ROUND_ROBIN,
+        WORKFLOW_10_CALL_CONNECTED,
+        WORKFLOW_11_CALL_SUCCESS,
     ]
     
     return [

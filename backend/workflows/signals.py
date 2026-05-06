@@ -15,12 +15,12 @@ Usage:
 """
 
 import logging
-import threading
+from .context import _state
 
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
-from .engine import trigger_workflows
+from .dispatcher import dispatch_event
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ WATCHED_MODELS = {
     ('deals', 'deal'): 'deal',
     ('deals', 'product'): 'product',
     ('tasks', 'task'): 'task',
-    ('activities', 'call'): 'call',
+    ('calls', 'call'): 'call',
     ('activities', 'meeting'): 'meeting',
     ('quotes', 'quote'): 'quote',
     ('invoices', 'invoice'): 'invoice',
@@ -46,13 +46,12 @@ STAGE_FIELDS = {
     'task': 'status',
     'quote': 'status',
     'project': 'status',
+    'call': 'call_status',
+    'meeting': 'status',
 }
 
 # Fields that trigger task completion workflows
 COMPLETION_STATUSES = {'completed', 'done', 'finished', 'closed'}
-
-# Thread-local storage for previous field values
-_state = threading.local()
 
 
 @receiver(pre_save)
@@ -82,11 +81,16 @@ def capture_previous_values(sender, instance, **kwargs):
     if model_name == 'deal':
         fields_to_track.extend(['stage', 'value', 'owner_id'])
     if model_name == 'task':
-        fields_to_track.extend(['status', 'priority', 'assigned_to_id'])
+        fields_to_track.extend(['status', 'priority', 'assigned_to_id', 'outcome', 'lead_id', 'task_type'])
+
     if model_name == 'quote':
         fields_to_track.extend(['status', 'amount', 'valid_until'])
     if model_name == 'contact':
         fields_to_track.extend(['status', 'owner_id'])
+    if model_name == 'call':
+        fields_to_track.extend(['call_status', 'outcome', 'duration', 'lead_id'])
+    if model_name == 'meeting':
+        fields_to_track.extend(['status', 'meeting_type', 'object_id'])
     
     if not fields_to_track:
         return
@@ -121,13 +125,16 @@ def emit_workflow_events(sender, instance, created, **kwargs):
         delattr(_state, key)
 
     try:
+        # Get chain_id from thread-local if this save was triggered by another workflow
+        parent_chain_id = getattr(_state, 'chain_id', None)
+
         # Trigger on_create event
         if created:
-            trigger_workflows(module, 'on_create', instance)
+            dispatch_event(module, 'on_create', instance, parent_chain_id=parent_chain_id)
             return
 
-        # Trigger on_update event (always fired on updates)
-        trigger_workflows(module, 'on_update', instance, previous)
+        # Trigger on_update event
+        dispatch_event(module, 'on_update', instance, previous, parent_chain_id=parent_chain_id)
 
         # Trigger stage_change when relevant field changes
         stage_field = STAGE_FIELDS.get(module)
@@ -135,7 +142,7 @@ def emit_workflow_events(sender, instance, created, **kwargs):
             old_val = previous.get(f'old_{stage_field}')
             new_val = previous.get(f'new_{stage_field}')
             if old_val != new_val:
-                trigger_workflows(
+                dispatch_event(
                     module,
                     'stage_change',
                     instance,
@@ -144,6 +151,7 @@ def emit_workflow_events(sender, instance, created, **kwargs):
                         'old_value': old_val,
                         'new_value': new_val,
                     },
+                    parent_chain_id=parent_chain_id
                 )
 
         # Trigger on_task_complete when task/call/meeting is completed
@@ -153,11 +161,10 @@ def emit_workflow_events(sender, instance, created, **kwargs):
             new_status = previous.get(f'new_{status_field}', '')
             
             if old_status not in COMPLETION_STATUSES and new_status in COMPLETION_STATUSES:
-                trigger_workflows(module, 'on_task_complete', instance, previous)
+                dispatch_event(module, 'on_task_complete', instance, previous, parent_chain_id=parent_chain_id)
                 
                 # Chain to next workflow (task-driven automation)
-                _trigger_dependent_workflows(instance, previous)
-
+                _trigger_dependent_workflows(instance, previous, parent_chain_id=parent_chain_id)
     except Exception as exc:
         logger.error(
             "[WorkflowSignals] failed for module=%s instance_id=%s: %s",
@@ -168,7 +175,7 @@ def emit_workflow_events(sender, instance, created, **kwargs):
         )
 
 
-def _trigger_dependent_workflows(instance, previous):
+def _trigger_dependent_workflows(instance, previous, parent_chain_id=None):
     """
     Trigger dependent workflows based on task completion.
     For example: When "Initial Call" task completes → create "Follow-up Call" task.
@@ -180,29 +187,43 @@ def _trigger_dependent_workflows(instance, previous):
     
     # Get the linked record (lead, contact, deal, etc.)
     linked_record = None
-    if instance.lead:
+    linked_module = None
+
+    if hasattr(instance, 'lead') and instance.lead:
         linked_record = instance.lead
         linked_module = 'lead'
-    elif instance.deal:
+    elif hasattr(instance, 'deal') and instance.deal:
         linked_record = instance.deal
         linked_module = 'deal'
-    elif instance.contact:
+    elif hasattr(instance, 'contact') and instance.contact:
         linked_record = instance.contact
         linked_module = 'contact'
+    elif hasattr(instance, 'related_to') and instance.related_to:
+        linked_record = instance.related_to
+        linked_module = getattr(linked_record._meta, 'model_name', None)
+    elif hasattr(instance, 'content_type') and instance.object_id:
+        # Fallback for GFK if related_to is not yet cached/loaded
+        try:
+            linked_record = instance.related_to
+            linked_module = getattr(linked_record._meta, 'model_name', None)
+        except Exception:
+            return
     else:
         return
     
     if linked_record:
         # Trigger workflows on the linked record with on_task_complete trigger
-        trigger_workflows(
+        dispatch_event(
             linked_module,
             'on_task_complete',
             linked_record,
             {
-                'task_id': instance.pk,
-                'task_type': instance.task_type,
-                'task_status': instance.status,
-            }
+                'source_id': instance.pk,
+                'source_type': instance.__class__.__name__.lower(),
+                'status': getattr(instance, 'status', getattr(instance, 'call_status', 'completed')),
+                'outcome': getattr(instance, 'outcome', None),
+            },
+            parent_chain_id=parent_chain_id
         )
 
 

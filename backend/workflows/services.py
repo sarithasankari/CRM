@@ -38,6 +38,9 @@ def convert_lead(lead, owner=None, create_deal=True, deal_data=None):
     company_name = (lead.company or '').strip()
 
     with transaction.atomic():
+        # Lock lead for conversion
+        lead = type(lead).objects.select_for_update().get(pk=lead.pk)
+
         # Get or create account
         account = None
         if company_name:
@@ -76,25 +79,37 @@ def convert_lead(lead, owner=None, create_deal=True, deal_data=None):
         # Create deal if requested
         deal = None
         if create_deal:
+            # Check for existing ACTIVE deal
+            deal = Deal.objects.filter(lead=lead, is_active=True).first()
+            
             deal_defaults = {
                 'account': account,
                 'contact': contact,
                 'owner': owner,
                 'title': deal_data.get('title') or f"{company_name or lead.name or 'Lead'} Deal",
-                'value': deal_data.get('value') or 0,
-                'stage': deal_data.get('stage') or 'Qualification',
+                'value': deal_data.get('value') or lead.score or 1000,  # Fallback to score or fixed min
+                'stage': deal_data.get('stage') or 'proposal',
+                'expected_close_date': deal_data.get('expected_close_date') or (timezone.now() + timedelta(days=30)).date(),
+                'is_active': True,
+                'status': 'open',
             }
-            deal, created = Deal.objects.get_or_create(lead=lead, defaults=deal_defaults)
-            if not created:
-                # Update existing deal if fields differ
+
+            if not deal:
+                deal = Deal.objects.create(lead=lead, **deal_defaults)
+            else:
+                # Update existing active deal
                 updates = []
-                for field in ['account', 'contact', 'owner']:
-                    value = deal_defaults[field]
-                    if value and getattr(deal, f'{field}_id', None) != value.id:
+                for field, value in deal_defaults.items():
+                    if value and getattr(deal, field) != value:
                         setattr(deal, field, value)
                         updates.append(field)
                 if updates:
                     deal.save(update_fields=updates + ['updated_at'])
+
+            # Backend track pending deal requirement: Clear the flag and timestamp
+            lead.deal_required = False
+            lead.deal_required_at = None
+            lead.save(update_fields=['deal_required', 'deal_required_at', 'contact', 'status', 'updated_at'])
 
             # Link existing tasks to deal
             lead.tasks.filter(is_active=True).update(contact=contact, deal=deal)

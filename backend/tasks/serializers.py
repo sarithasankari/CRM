@@ -66,14 +66,9 @@ class TaskSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        # Outcome is required when completing a task
-        if data.get('status') == 'completed' and not data.get('outcome'):
-            # Allow if the instance already has an outcome
-            instance = getattr(self, 'instance', None)
-            if instance and not instance.outcome:
-                raise serializers.ValidationError(
-                    {'outcome': 'Outcome is required when completing a task.'}
-                )
+        # Outcome is optional even when completing a task, as the model's 
+        # save() method provides a default if none is provided.
+        # This allows simple status updates from Kanban/Table.
         return data
 
 

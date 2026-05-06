@@ -61,38 +61,36 @@ class Call(models.Model):
     DIRECTION_CHOICES = (
         ('inbound', 'Inbound'),
         ('outbound', 'Outbound'),
-        ('scheduled', 'Scheduled'),
+    )
+    STATUS_CHOICES = (
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
     )
     OUTCOME_CHOICES = (
-        ('interested', 'Interested'),
-        ('no_answer', 'No Answer'),
-        ('not_interested', 'Not Interested'),
-        ('voicemail', 'Voicemail'),
         ('connected', 'Connected'),
-        ('follow_up', 'Follow-up Required'),
+        ('no_response', 'No Response'),
+        ('not_interested', 'Not Interested'),
         ('pending', 'Pending'),
     )
     
-    # Generic relation
+    # Generic relation (Optional link to Lead/Contact)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True)
     object_id = models.PositiveIntegerField(null=True, blank=True)
     related_to = GenericForeignKey('content_type', 'object_id')
 
-    # Unlinked/Manual Data fields
-    contact_name = models.CharField(max_length=255, blank=True, null=True)
-    company = models.CharField(max_length=255, blank=True, null=True)
-
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='calls')
     direction = models.CharField(max_length=20, choices=DIRECTION_CHOICES, default='outbound')
-    outcome = models.CharField(max_length=30, choices=OUTCOME_CHOICES, default='connected')
-    duration = models.IntegerField(default=0, help_text="Duration in seconds")
-    notes = models.TextField(blank=True, null=True)
-    call_date = models.DateTimeField(auto_now_add=True)
+    call_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='in_progress')
+    outcome = models.CharField(max_length=30, choices=OUTCOME_CHOICES, default='pending')
     
-    # Traceability
-    created_from_task = models.ForeignKey('tasks.Task', on_delete=models.SET_NULL, null=True, blank=True, related_name='generated_calls')
-
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    duration = models.IntegerField(default=0, help_text="Duration in seconds")
+    
+    notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created_at']

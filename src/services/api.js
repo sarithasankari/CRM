@@ -173,7 +173,26 @@ export const invoicesApi = createResource('invoices');
 export const casesApi = createResource('cases');
 export const usersApi = createResource('users');
 export const meetingsApi = createResource('meetings');
-export const callsApi = createResource('calls');
+export const callsApi = {
+  ...createResource('calls'),
+  startCall: async (data) => {
+    const response = await api.post('/calls/start_call/', data);
+    return response.data;
+  },
+  endCall: async (id) => {
+    const response = await api.post(`/calls/${id}/end_call/`);
+    return response.data;
+  },
+  setOutcome: async (id, outcome) => {
+    const response = await api.post(`/calls/${id}/set_outcome/`, { outcome });
+    return response.data;
+  },
+  metrics: async () => {
+    const response = await api.get('/calls/metrics/');
+    return response.data;
+  },
+};
+
 export const campaignsApi = createResource('campaigns');
 
 // Email API — wraps the real send endpoint + activity log

@@ -67,85 +67,12 @@ def log_and_broadcast(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Meeting)
 @receiver(post_save, sender=Call)
 def handle_post_save(sender, instance, created, **kwargs):
+    """
+    Generic post-save handler for auditing and real-time broadcasts.
+    Automation logic should be handled by the Workflow Engine or specific views.
+    """
     log_and_broadcast(sender, instance, created, **kwargs)
 
-    from workflows.tasks import execute_create_task
-
-    # Activity Engine Automation for CALL
-    if sender == Call and created:
-        if instance.content_type and instance.content_type.model == 'lead':
-            lead = instance.related_to
-            if lead.status in ['won', 'lost', 'converted']:
-                # Deduplication logic / stop workflow
-                if not (lead.status == 'lost' and instance.outcome == 'not_interested'):
-                    return
-
-            from django.utils import timezone
-            from datetime import timedelta
-            from workflows.auto_pilot import execute_auto_meeting, execute_auto_call
-
-            if instance.outcome == 'interested':
-                task = Task.objects.create(
-                    title=f"Schedule Meeting with {lead.name} (Auto)",
-                    description=f"Call outcome was Interested. System will auto-schedule meeting.",
-                    priority='high',
-                    due_date=timezone.now() + timedelta(hours=1),
-                    assigned_to=instance.owner,
-                    source_object_id=str(lead.id),
-                    status='not_started',
-                    task_type='meeting',
-                )
-                execute_auto_meeting.apply_async(args=[task.id], countdown=3600) # 1 hour
-                
-            elif instance.outcome == 'no_answer':
-                task = Task.objects.create(
-                    title=f"Retry Call with {lead.name} (Auto)",
-                    description=f"No answer on previous call. System will auto-retry.",
-                    priority='medium',
-                    due_date=timezone.now() + timedelta(hours=2),
-                    assigned_to=instance.owner,
-                    source_object_id=str(lead.id),
-                    status='not_started',
-                    task_type='call',
-                )
-                execute_auto_call.apply_async(args=[task.id], countdown=7200) # 2 hours
-                
-            elif instance.outcome == 'not_interested':
-                lead.status = 'lost'
-                lead.save(update_fields=['status'])
-
-    # Activity Engine Automation for MEETING
-    if sender == Meeting and not created:
-        if instance.status == 'completed':
-            if instance.content_type and instance.content_type.model == 'lead':
-                lead = instance.related_to
-                if lead.status not in ['won', 'lost', 'converted']:
-                    execute_create_task.apply_async(kwargs={
-                        'workflow_id': None, 'workflow_action_id': None,
-                        'title': f"Send Proposal to {lead.name}",
-                        'description': f"Meeting completed. Send a proposal.",
-                        'priority': 'high', 'delay_days': 1,
-                        'assignment_type': 'specific_user',
-                        'specific_user_id': instance.owner.id if instance.owner else None,
-                        'source_object_id': str(lead.id),
-                        'owner_user_id': instance.owner.id if instance.owner else None,
-                    })
-        elif instance.status == 'no_show':
-            if instance.content_type and instance.content_type.model == 'lead':
-                lead = instance.related_to
-                if lead.status not in ['won', 'lost', 'converted']:
-                    execute_create_task.apply_async(kwargs={
-                        'workflow_id': None, 'workflow_action_id': None,
-                        'title': f"Reschedule Meeting with {lead.name}",
-                        'description': f"Prospect was a no-show.",
-                        'priority': 'medium', 'delay_days': 1,
-                        'assignment_type': 'specific_user',
-                        'specific_user_id': instance.owner.id if instance.owner else None,
-                        'source_object_id': str(lead.id),
-                        'owner_user_id': instance.owner.id if instance.owner else None,
-                    })
-
-    log_and_broadcast(sender, instance, created, **kwargs)
 
 @receiver(post_delete, sender=Lead)
 @receiver(post_delete, sender=Deal)

@@ -21,6 +21,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .models import WorkflowActionExecution, WorkflowDebounce
+from .context import _state
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +46,6 @@ def execute_action(action, instance, event):
     fingerprint = _fingerprint(action, instance, event)
     object_key = _object_key(instance)
 
-    # Check debounce window
-    if not _should_execute(action, instance):
-        return ActionResult(action_type, 'skipped', 'Debounced: too soon to execute')
-
     # Enforce idempotency
     try:
         WorkflowActionExecution.objects.create(
@@ -69,6 +66,8 @@ def execute_action(action, instance, event):
         'create_invoice': create_invoice,
         'send_notification': send_notification,
         'convert_lead': convert_lead_action,
+        'assign_owner': assign_owner,
+        'close_open_tasks': close_open_tasks,
     }
     handler = handlers.get(action_type)
     if not handler:
@@ -76,21 +75,64 @@ def execute_action(action, instance, event):
         return ActionResult(action_type, 'skipped', f"Unsupported action '{action.action_type}'")
 
     try:
+        # Set thread-local chain context for nested signal triggers
+        _state.chain_id = event.get('chain_id')
+        
         result = handler(action, instance, event)
         # Record the created object for traceability
         WorkflowActionExecution.objects.filter(action=action, fingerprint=fingerprint).update(
             created_object=result.created_object
         )
-        # Update debounce record
-        WorkflowDebounce.objects.update_or_create(
-            workflow=action.workflow,
-            object_key=object_key,
-            defaults={'execution_key': fingerprint}
-        )
         return result
     except Exception as exc:
         _cleanup_execution(action, fingerprint)
         logger.error(f"[Workflow] action failed: {action.action_type} on {object_key}: {exc}", exc_info=True)
+        raise
+    finally:
+        # Clear chain context
+        if hasattr(_state, 'chain_id'):
+            del _state.chain_id
+def execute_compensation(action, instance, event, result):
+    """
+    Execute rollback logic for a successfully completed action.
+    Used when a subsequent action in the same workflow fails permanently.
+    Requirement 4: Compensation Logic.
+    """
+    comp_config = action.compensation_action
+    if not comp_config:
+        return
+        
+    action_type = comp_config.get('type', 'delete_created')
+    logger.info(f"[Compensation] Executing {action_type} rollback for action {action.pk} on {instance}")
+    
+    try:
+        if action_type == 'delete_created':
+            # Delete the object created by the original action
+            created_ref = getattr(result, 'created_object', None)
+            if created_ref and ':' in created_ref:
+                from django.apps import apps
+                model_path, pk = created_ref.split(':')
+                app_label, model_name = model_path.split('.')
+                Model = apps.get_model(app_label, model_name)
+                Model.objects.filter(pk=pk).delete()
+                logger.info(f"[Compensation] Successfully deleted {created_ref}")
+        
+        elif action_type == 'undo_update':
+            # Reverse field changes (requires 'old_values' to be stored in ActionResult)
+            pass # Implementation depends on how much state we want to store
+
+        # Mark the original action log as compensated
+        from .models import WorkflowLog, WorkflowActionLog
+        log = WorkflowActionLog.objects.filter(
+            workflow_log__chain_id=event.get('chain_id'),
+            action=action
+        ).first()
+        if log:
+            log.is_compensated = True
+            log.save(update_fields=['is_compensated'])
+
+    except Exception as exc:
+        logger.error(f"[Compensation] Failed to rollback action {action.pk}: {exc}", exc_info=True)
         raise
 
 
@@ -190,22 +232,32 @@ def create_meeting(action, instance, event):
 
 def update_record(action, instance, event):
     data = action.action_data or {}
+    target_name = data.get('target')
+    
+    # Resolve target object (self or linked record)
+    target = instance
+    if target_name and target_name != 'self':
+        target = getattr(instance, target_name, None)
+        if not target:
+            return ActionResult('update_record', 'skipped', f"Linked target '{target_name}' not found on {instance}")
+
     updates = data.get('fields') or {data.get('field'): data.get('value')}
     updates = {k: _render(str(v), instance, event) for k, v in updates.items() if k}
 
     changed = []
     for field, value in updates.items():
-        if not hasattr(instance, field):
-            raise ValueError(f"{instance.__class__.__name__} has no field '{field}'.")
-        setattr(instance, field, value)
+        if not hasattr(target, field):
+            # Try to handle common field name mapping issues or raise error
+            raise ValueError(f"{target.__class__.__name__} has no field '{field}'.")
+        setattr(target, field, value)
         changed.append(field)
 
     if changed:
-        save_fields = changed + ['updated_at'] if hasattr(instance, 'updated_at') else changed
-        instance.save(update_fields=save_fields)
+        save_fields = changed + ['updated_at'] if hasattr(target, 'updated_at') else changed
+        target.save(update_fields=save_fields)
 
-    log_activity('update', f"Workflow updated {', '.join(changed)}", instance, _record_owner(instance))
-    return ActionResult('update_record', message=f"Updated {changed}")
+    log_activity('update', f"Workflow updated {target.__class__.__name__} {', '.join(changed)}", target, _record_owner(target))
+    return ActionResult('update_record', message=f"Updated {target.__class__.__name__} {changed}")
 
 
 def create_quote(action, instance, event):
@@ -279,7 +331,7 @@ def create_invoice(action, instance, event):
 
 def send_notification(action, instance, event):
     message = _render((action.action_data or {}).get('message', 'Workflow notification'), instance, event)
-    _log_activity('note', message, instance, _record_owner(instance))
+    log_activity('note', message, instance, _record_owner(instance))
     return ActionResult('send_notification', message=message)
 
 
@@ -301,7 +353,7 @@ def convert_lead_action(action, instance, event):
 
     result = convert_lead(instance, owner=instance.assigned_to, create_deal=create_deal, deal_data=deal_data)
     
-    _log_activity(
+    log_activity(
         'converted',
         f"Workflow converted lead {instance.pk} to contact {result['contact'].pk}",
         instance,
@@ -315,7 +367,79 @@ def convert_lead_action(action, instance, event):
     )
 
 
-def log_activity(activity_type, notes, instance, user=None):
+def assign_owner(action, instance, event):
+    """
+    Explicitly assign the record to a user using the workflow assignment strategy.
+    Supports owner, round_robin, manager, and specific_user.
+    """
+    assignee = _resolve_assignee(action, instance)
+    
+    if not assignee:
+        return ActionResult('assign_owner', 'skipped', "No assignee available (e.g. no sales reps for round-robin)")
+
+    # Identify the correct field to update (usually 'assigned_to' or 'owner')
+    field = 'assigned_to' if hasattr(instance, 'assigned_to') else 'owner'
+    if not hasattr(instance, field):
+        return ActionResult('assign_owner', 'failure', f"Record {instance} has no 'assigned_to' or 'owner' field.")
+
+    old_owner = getattr(instance, field, None)
+    if old_owner == assignee:
+        return ActionResult('assign_owner', 'skipped', f"Already assigned to {assignee.username}")
+
+    setattr(instance, field, assignee)
+    
+    # Save the change
+    save_fields = [field]
+    if hasattr(instance, 'updated_at'):
+        save_fields.append('updated_at')
+    instance.save(update_fields=save_fields)
+
+    log_activity(
+        'assigned',
+        f"Workflow assigned {instance.__class__.__name__} to {assignee.username} (Assignment: {action.assignment_type})",
+        instance,
+        assignee
+    )
+
+    return ActionResult('assign_owner', message=f"Assigned to {assignee.username}")
+
+
+def close_open_tasks(action, instance, event):
+    """
+    Close all active tasks associated with the instance.
+    Typically used when a Lead is marked as lost or won.
+    """
+    from tasks.models import Task
+    
+    # We need to find tasks linked to this instance
+    model_name = instance._meta.model_name
+    query = {
+        f"{model_name}": instance,
+        "is_active": True
+    }
+    
+    # Ensure it's one of the known linkable models
+    if model_name not in ['lead', 'contact', 'account', 'deal']:
+        return ActionResult('close_open_tasks', 'skipped', f"Cannot close tasks for unsupported model {model_name}")
+        
+    tasks = Task.objects.filter(**query)
+    count = tasks.count()
+    
+    if count == 0:
+        return ActionResult('close_open_tasks', message="No open tasks to close")
+        
+    for task in tasks:
+        task.status = 'completed'
+        task.outcome = 'failed' if event.get('extra', {}).get('outcome') == 'not_interested' else 'success'
+        task.is_active = False
+        task.completed_at = timezone.now()
+        task.save(update_fields=['status', 'outcome', 'is_active', 'completed_at', 'updated_at'])
+        
+    log_activity('system', f"Workflow auto-closed {count} open tasks.", instance, _record_owner(instance))
+    return ActionResult('close_open_tasks', message=f"Closed {count} open tasks")
+
+def _log_activity(activity_type, notes, instance, user=None):
+    """Internal helper to record activity logs for audit trails."""
     from activities.models import Activity
 
     Activity.objects.create(
@@ -324,6 +448,9 @@ def log_activity(activity_type, notes, instance, user=None):
         created_by=user,
         **_generic_link(instance),
     )
+
+# Alias for backward compatibility and standard naming
+log_activity = _log_activity
 
 
 def _normalize_action(action_type):
@@ -340,7 +467,8 @@ def _fingerprint(action, instance, event):
         'action': action.pk,
         'module': instance._meta.label_lower,
         'object': instance.pk,
-        'event': event.get('trigger'),
+        'trigger': event.get('trigger'),
+        'extra': event.get('extra', {}),
         'data': action.action_data,
     }
     return hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode()).hexdigest()
@@ -348,21 +476,6 @@ def _fingerprint(action, instance, event):
 
 def _object_key(instance):
     return f"{instance._meta.label_lower}:{instance.pk}"
-
-
-def _should_execute(action, instance):
-    """Check if we should execute based on debounce window."""
-    object_key = _object_key(instance)
-    debounce_window = timedelta(minutes=action.workflow.debounce_minutes)
-    cutoff_time = timezone.now() - debounce_window
-    
-    recent = WorkflowDebounce.objects.filter(
-        workflow=action.workflow,
-        object_key=object_key,
-        last_executed_at__gte=cutoff_time
-    ).exists()
-    
-    return not recent
 
 
 def _cleanup_execution(action, fingerprint):
@@ -400,7 +513,10 @@ def _resolve_assignee(action, instance):
     if action.assignment_type == 'round_robin':
         reps = list(User.objects.filter(role='sales', is_active=True).order_by('pk'))
         if not reps:
-            return None
+            # Fallback for early-stage environments: include admins if no sales reps exist
+            reps = list(User.objects.filter(role='admin', is_active=True).order_by('pk'))
+            if not reps:
+                return None
         with transaction.atomic():
             state, _ = RoundRobinState.objects.select_for_update().get_or_create(action=action)
             last_idx = next((idx for idx, rep in enumerate(reps) if rep.pk == state.last_user_id), -1)

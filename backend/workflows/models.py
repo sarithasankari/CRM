@@ -127,6 +127,8 @@ class WorkflowAction(models.Model):
         ('create_quote',       'Create Quote'),
         ('create_invoice',     'Create Invoice'),
         ('send_notification',  'Send Notification'),
+        ('assign_owner',       'Assign Owner'),
+        ('close_open_tasks',   'Close Open Tasks'),
         # Backward-compatible aliases for older saved workflows.
         ('assign_user',        'Assign User (legacy)'),
         ('send_email',         'Send Email (legacy)'),
@@ -188,6 +190,13 @@ class WorkflowAction(models.Model):
         )
     )
 
+    # ── Compensation / Rollback logic ──────────────────────────────────────
+    compensation_action = models.JSONField(
+        default=dict, 
+        blank=True, 
+        help_text="JSON config for rollback if subsequent actions in chain fail."
+    )
+
     class Meta:
         ordering = ['order']
 
@@ -213,6 +222,7 @@ class WorkflowLog(models.Model):
     object_id     = models.CharField(max_length=50, blank=True, default='')
     message       = models.TextField(blank=True, default='')
     execution_key = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    chain_id      = models.CharField(max_length=100, blank=True, default='', db_index=True)
 
     class Meta:
         ordering = ['-executed_at']
@@ -281,5 +291,112 @@ class RoundRobinState(models.Model):
     )
     updated_at   = models.DateTimeField(auto_now=True)
 
+# ---------------------------------------------------------------------------
+# WorkflowRule — Dynamic Task Outcome Rules (JSON-driven)
+# ---------------------------------------------------------------------------
+class WorkflowRule(models.Model):
+    """
+    Simplified, config-driven rules for Task outcomes.
+    Acts as the single source of truth for post-task automation.
+    """
+    name = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+
+    # Trigger conditions
+    trigger_task_type = models.CharField(max_length=50, help_text="e.g. 'call', 'meeting'")
+    trigger_outcome = models.CharField(max_length=50, help_text="e.g. 'interested', 'no_response'")
+
+    # Dynamic actions
+    actions = models.JSONField(
+        default=list,
+        help_text="List of actions: [{'type': 'update_lead', 'status': 'qualified'}, ...]"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     def __str__(self):
-        return f"RoundRobin state for action {self.action_id}"
+        return f"{self.name} ({self.trigger_task_type}:{self.trigger_outcome})"
+
+
+class WorkflowExecutionLog(models.Model):
+    """
+    Production-grade failure handling: logs every execution of a WorkflowRule.
+    """
+    task = models.ForeignKey('tasks.Task', on_delete=models.CASCADE, related_name='execution_logs')
+    rule = models.ForeignKey(WorkflowRule, on_delete=models.SET_NULL, null=True, related_name='execution_logs')
+    status = models.CharField(max_length=20, choices=[('success', 'Success'), ('failed', 'Failed')])
+    error_message = models.TextField(blank=True, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Log for Task {self.task_id} - {self.status}"
+
+
+# ---------------------------------------------------------------------------
+# Advanced Automation Tracking (Refactoring V2)
+# ---------------------------------------------------------------------------
+
+class WorkflowEvent(models.Model):
+    """
+    Deduplication ledger for triggered events.
+    Ensures a specific business event (e.g., lead created with key X)
+    is only processed once by the workflow engine.
+    """
+    event_key = models.CharField(max_length=255, unique=True, db_index=True)
+    module = models.CharField(max_length=50)
+    trigger = models.CharField(max_length=50)
+    object_id = models.CharField(max_length=50)
+    
+    # Ordering Control (Requirement 1)
+    version = models.PositiveIntegerField(default=1, help_text="Object version at time of event")
+    source_timestamp = models.DateTimeField(null=True, blank=True, help_text="Original event timestamp")
+    
+    processed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.event_key} (v{self.version})"
+
+
+class WorkflowChain(models.Model):
+    """
+    Tracks execution chains to prevent infinite loops.
+    A chain starts with an initial event and grows as actions trigger new workflows.
+    """
+    chain_id = models.CharField(max_length=100, unique=True, db_index=True)
+    root_event_key = models.CharField(max_length=255)
+    parent_chain_id = models.CharField(max_length=100, blank=True, null=True)
+    depth = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Chain {self.chain_id} (Depth: {self.depth})"
+
+
+class WorkflowActionLog(models.Model):
+    """
+    Granular logging for each action in a workflow execution.
+    Supports tracking partial failures and providing audit trails for retries.
+    """
+    STATUS_CHOICES = [
+        ('success', 'Success'),
+        ('failure', 'Failure'),
+        ('retrying', 'Retrying'),
+        ('skipped', 'Skipped'),
+    ]
+    workflow_log  = models.ForeignKey(WorkflowLog, related_name='action_logs', on_delete=models.CASCADE)
+    action        = models.ForeignKey(WorkflowAction, on_delete=models.CASCADE)
+    status        = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    message       = models.TextField(blank=True, default='')
+    error_details = models.TextField(blank=True, default='')
+    retry_count   = models.PositiveIntegerField(default=0)
+    
+    # Idempotency & Compensation (Requirement 2 & 4)
+    idempotency_key = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    is_compensated  = models.BooleanField(default=False)
+    
+    executed_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['executed_at']

@@ -64,7 +64,8 @@ class LeadViewSet(viewsets.ModelViewSet):
                 deal_data={
                     'title': request.data.get('dealName') or f"{lead.company or lead.name} Deal",
                     'value': request.data.get('amount') or 0,
-                    'stage': request.data.get('stage') or 'Qualification',
+                    'stage': request.data.get('stage') or 'proposal',
+                    'expected_close_date': request.data.get('closingDate'),
                 },
             )
             logger.info("Lead %s converted to contact=%s deal=%s", lead.pk, result['contact'].pk, getattr(result['deal'], 'pk', None))

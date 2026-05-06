@@ -212,7 +212,9 @@ class TaskViewSet(viewsets.ModelViewSet):
             )
 
         with transaction.atomic():
+            # Use select_for_update to prevent race conditions during completion
             task = Task.objects.select_for_update().get(pk=task.pk)
+            
             if task.status == 'completed':
                 return Response(
                     {'error': 'Task is already completed.'},
@@ -251,9 +253,13 @@ class TaskViewSet(viewsets.ModelViewSet):
 
             task.save()
 
-        # Run the inline CRM workflow rules (in addition to the DB workflow engine
-        # which fires via signals). This ensures the hardcoded rules always execute.
-        workflow_actions = self._run_crm_workflow_rules(task, request.user)
+            # Use explicit Event Dispatcher (Requirement 3)
+            from workflows.dispatcher import dispatch_event
+            chain_id = dispatch_event('task', 'on_task_complete', task)
+
+            # Run dynamic, config-driven workflow rules with chain tracking
+            from workflows.engine import execute_workflow_rules
+            workflow_actions = execute_workflow_rules(task, chain_id=chain_id)
 
         serializer = self.get_serializer(task)
         return Response({
@@ -263,93 +269,6 @@ class TaskViewSet(viewsets.ModelViewSet):
             'call_duration_seconds': call_duration if task.task_type == 'call' else None,
         })
 
-    def _run_crm_workflow_rules(self, task, user):
-        """
-        Hardcoded CRM workflow rules:
-          call + interested    → update lead → qualified, create meeting task
-          call + no_response   → create follow-up call task (+1 day, high priority)
-          call + not_interested → update lead → lost
-          meeting + success    → update lead → proposal, create Send Proposal task
-          meeting + failed     → create reschedule task
-        """
-        actions_taken = []
-        now = timezone.now()
-
-        lead = task.lead
-        task_type = task.task_type
-        outcome = task.outcome
-
-        try:
-            if task_type == 'call' and outcome == 'interested':
-                if lead:
-                    lead.status = 'qualified'
-                    lead.save(update_fields=['status', 'updated_at'])
-                    actions_taken.append('Lead status → qualified')
-
-                # Auto-create meeting task (+1 day)
-                new_task = self._create_followup_task(
-                    title='Schedule Meeting',
-                    task_type='meeting',
-                    priority='high',
-                    due_date=now + timedelta(days=1),
-                    lead=lead,
-                    assigned_to=user,
-                    notes=f"Auto-created after call outcome: interested",
-                )
-                actions_taken.append(f'Created meeting task #{new_task.pk}')
-
-            elif task_type == 'call' and outcome == 'no_response':
-                new_task = self._create_followup_task(
-                    title='Follow-up Call',
-                    task_type='call',
-                    priority='high',
-                    due_date=now + timedelta(days=1),
-                    lead=lead,
-                    assigned_to=user,
-                    notes=f"Auto-created: no response on previous call",
-                )
-                actions_taken.append(f'Created follow-up call task #{new_task.pk}')
-
-            elif task_type == 'call' and outcome == 'not_interested':
-                if lead:
-                    lead.status = 'lost'
-                    lead.save(update_fields=['status', 'updated_at'])
-                    actions_taken.append('Lead status → lost')
-
-            elif task_type == 'meeting' and outcome == 'success':
-                if lead:
-                    lead.status = 'proposal'
-                    lead.save(update_fields=['status', 'updated_at'])
-                    actions_taken.append('Lead status → proposal')
-
-                new_task = self._create_followup_task(
-                    title='Send Proposal',
-                    task_type='proposal',
-                    priority='high',
-                    due_date=now + timedelta(days=1),
-                    lead=lead,
-                    assigned_to=user,
-                    notes=f"Auto-created after meeting outcome: success",
-                )
-                actions_taken.append(f'Created Send Proposal task #{new_task.pk}')
-
-            elif task_type == 'meeting' and outcome == 'failed':
-                new_task = self._create_followup_task(
-                    title='Reschedule Meeting',
-                    task_type='meeting',
-                    priority='medium',
-                    due_date=now + timedelta(days=2),
-                    lead=lead,
-                    assigned_to=user,
-                    notes=f"Auto-created: meeting failed, reschedule needed",
-                )
-                actions_taken.append(f'Created reschedule task #{new_task.pk}')
-
-        except Exception as exc:
-            logger.error("[CRM Rules] Workflow rule execution failed: %s", exc, exc_info=True)
-            actions_taken.append(f'Warning: {exc}')
-
-        return actions_taken
 
     def _create_followup_task(self, title, task_type, priority, due_date, lead, assigned_to, notes=''):
         """Create a follow-up task with deduplication check."""
@@ -403,9 +322,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         """
         qs = self.get_queryset().filter(
             task_type='call',
-            status__in=['not_started', 'pending', 'in_progress'],
-            is_active=True,
-        ).select_related('lead', 'assigned_to')
+            assigned_to=request.user
+        ).select_related('lead', 'assigned_to').order_by('-updated_at')
 
         now = timezone.now()
         today_end = now.replace(hour=23, minute=59, second=59)
@@ -414,9 +332,18 @@ class TaskViewSet(viewsets.ModelViewSet):
         due_today = []
         upcoming = []
         in_progress = []
+        completed = []
+
+        last_24h = now - timedelta(hours=24)
 
         for task in qs:
             s = self.get_serializer(task).data
+            if task.status == 'completed':
+                # Only show recently completed calls in the dashboard
+                if task.completed_at and task.completed_at >= last_24h:
+                    completed.append(s)
+                continue
+
             if task.status == 'in_progress':
                 in_progress.append(s)
             elif task.due_date and task.due_date < now:
@@ -431,6 +358,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             'due_today': due_today,
             'in_progress': in_progress,
             'upcoming': upcoming,
+            'completed': completed,
             'stats': {
                 'total_call_tasks': qs.count(),
                 'overdue_count': len(overdue),

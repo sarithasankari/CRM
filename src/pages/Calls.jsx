@@ -6,15 +6,15 @@ import {
 } from 'lucide-react';
 import { tasksApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { useNavigate } from 'react-router-dom';
 
 /* ─── Constants ──────────────────────────────────────────── */
 const OUTCOME_OPTIONS = [
-  { value: 'interested',      label: 'Interested',      color: 'emerald', icon: '🟢' },
-  { value: 'no_response',     label: 'No Response',     color: 'amber',   icon: '🟡' },
-  { value: 'not_interested',  label: 'Not Interested',  color: 'rose',    icon: '🔴' },
-  { value: 'success',         label: 'Success',         color: 'blue',    icon: '✅' },
-  { value: 'failed',          label: 'Failed',          color: 'slate',   icon: '❌' },
+  { value: 'success',         label: 'Connected (Success)',   color: 'emerald', icon: '📞', nextAction: 'Update to Contacted & Follow-up' },
+  { value: 'no_response',     label: 'No Response',           color: 'amber',   icon: '🟡', nextAction: 'Reschedule Call Task' },
+  { value: 'not_interested',  label: 'Not Interested',        color: 'rose',    icon: '🔴', nextAction: 'Mark Lead as Lost' },
 ];
+
 
 const PRIORITY_STYLES = {
   high:   'bg-rose-50 text-rose-600 border-rose-200',
@@ -69,6 +69,7 @@ export default function Calls() {
   const [logTaskId, setLogTaskId]       = useState(null);
   const timer = useCallTimer();
   const { addToast } = useToast();
+  const navigate = useNavigate();
 
   /* ── Data Fetching ───────────────────────────────────────── */
   const fetchData = async () => {
@@ -159,6 +160,7 @@ export default function Calls() {
 
   const getBucket = (task) => {
     if (task.status === 'in_progress') return { label: 'IN PROGRESS', cls: 'bg-blue-100 text-blue-700' };
+    if (task.status === 'completed') return { label: 'COMPLETED', cls: 'bg-emerald-100 text-emerald-700' };
     if (task.is_overdue) return { label: 'OVERDUE', cls: 'bg-rose-100 text-rose-700' };
     const now = new Date();
     const due = task.due_date ? new Date(task.due_date) : null;
@@ -237,7 +239,7 @@ export default function Calls() {
       <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[300px]">
         <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Call Execution Queue</h3>
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filtered.length} tasks</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filtered.length} active tasks</span>
         </div>
 
         {loading ? (
@@ -275,7 +277,12 @@ export default function Calls() {
                     <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
                       <div className="md:col-span-2">
                         <h4 className="text-sm font-black text-slate-900 truncate">{task.title}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{task.lead_name || 'No lead'}</p>
+                        <button 
+                          onClick={() => task.lead && navigate(`/leads?id=${task.lead}`)}
+                          className="text-[10px] font-bold text-blue-600 hover:text-blue-700 hover:underline uppercase tracking-widest mt-0.5"
+                        >
+                          {task.lead_name || 'No lead'}
+                        </button>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -344,22 +351,93 @@ export default function Calls() {
         )}
       </div>
 
+      {/* Recent History Section */}
+      {dashboard?.completed?.length > 0 && (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="flex items-center space-x-2 mb-4 px-2">
+            <CheckCircle className="w-5 h-5 text-emerald-600" />
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recent History (Last 24h)</span>
+          </div>
+          
+          <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden opacity-75 hover:opacity-100 transition-opacity">
+            <ul className="divide-y divide-slate-50">
+              {dashboard.completed.map(task => {
+                const bucket = getBucket(task);
+                return (
+                  <li key={task.id} className="px-8 py-4 bg-slate-50/30">
+                    <div className="flex items-center gap-5">
+                      <div className="flex-shrink-0 p-3 bg-white rounded-xl shadow-sm border border-slate-100">
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      </div>
+                      <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
+                        <div className="md:col-span-2">
+                          <h4 className="text-sm font-bold text-slate-500 truncate line-through">{task.title}</h4>
+                          <button 
+                            onClick={() => navigate(`/leads?id=${task.lead}`)}
+                            className="text-[10px] font-bold text-blue-400 hover:text-blue-600 uppercase tracking-widest mt-0.5"
+                          >
+                            {task.lead_name}
+                          </button>
+                        </div>
+                        <div>
+                          <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-100">
+                            {task.outcome?.replace('_', ' ') || 'Completed'}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Finished</p>
+                          <p className="text-xs text-slate-400">{formatDate(task.completed_at)}</p>
+                        </div>
+                        <div className="text-right">
+                           <button 
+                             onClick={() => handleViewLog(task.id)}
+                             className="text-[10px] font-black text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors"
+                           >
+                             {logTaskId === task.id ? 'Close Log' : 'View Log'}
+                           </button>
+                        </div>
+                      </div>
+                    </div>
+                    {logTaskId === task.id && (
+                      <div className="mt-4 ml-14 p-4 bg-white rounded-2xl border border-slate-100 shadow-inner animate-in slide-in-from-top-2">
+                        <div className="space-y-3">
+                          {activityLog.map((log, i) => (
+                            <div key={i} className="flex items-start space-x-3 text-xs">
+                              <div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5" />
+                              <div>
+                                <p className="font-bold text-slate-700 capitalize">{log.action_type.replace('_', ' ')}</p>
+                                <p className="text-slate-400">{log.notes || 'No notes'}</p>
+                                <p className="text-[9px] text-slate-300 mt-0.5">{formatDate(log.timestamp)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
+
       {/* Outcome Modal */}
       {outcomeModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => !submitting && setOutcomeModal(null)} />
           <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md overflow-hidden relative z-10">
-            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
               <div>
                 <h3 className="text-xl font-black text-slate-900">Record Outcome</h3>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{outcomeModal.title}</p>
               </div>
-              <button onClick={() => !submitting && setOutcomeModal(null)} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all">
+              <button onClick={() => !submitting && setOutcomeModal(null)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all border border-slate-100">
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="p-8">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Select call outcome:</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Select call outcome:</p>
               <div className="grid grid-cols-1 gap-3">
                 {OUTCOME_OPTIONS.map(opt => (
                   <button key={opt.value} disabled={submitting}
@@ -369,13 +447,18 @@ export default function Calls() {
                         opt.color === 'amber'   ? 'border-amber-200 hover:bg-amber-50 hover:border-amber-400 text-amber-700' :
                         opt.color === 'rose'    ? 'border-rose-200 hover:bg-rose-50 hover:border-rose-400 text-rose-700' :
                         opt.color === 'blue'    ? 'border-blue-200 hover:bg-blue-50 hover:border-blue-400 text-blue-700' :
-                                                  'border-slate-200 hover:bg-slate-50 hover:border-slate-400 text-slate-700'}`}
+                                                   'border-slate-200 hover:bg-slate-50 hover:border-slate-400 text-slate-700'}`}
                   >
-                    <span className="flex items-center gap-3">
-                      <span className="text-lg">{opt.icon}</span>
-                      {opt.label}
-                    </span>
-                    {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                    <div className="flex flex-col">
+                      <span className="flex items-center gap-3">
+                        <span className="text-lg">{opt.icon}</span>
+                        {opt.label}
+                      </span>
+                      <span className="text-[10px] opacity-60 ml-8 font-medium italic">
+                        {opt.nextAction ? `→ Workflow: ${opt.nextAction}` : '—'}
+                      </span>
+                    </div>
+                    {submitting ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" /> : <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />}
                   </button>
                 ))}
               </div>
@@ -386,3 +469,4 @@ export default function Calls() {
     </div>
   );
 }
+

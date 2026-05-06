@@ -22,9 +22,10 @@ from leads.views import LeadViewSet
 from contacts.views import ContactViewSet, AccountViewSet
 from deals.views import DealViewSet, ProductViewSet
 from tasks.views import TaskViewSet, ActivityLogViewSet
-from activities.views import ActivityViewSet, MeetingViewSet, CallViewSet, CampaignViewSet, SendEmailAPIView
+from activities.views import ActivityViewSet, MeetingViewSet, CampaignViewSet, SendEmailAPIView
+from calls.views import CallViewSet
 from projects.views import ProjectViewSet
-from workflows.views import WorkflowViewSet, WorkflowLogViewSet
+from workflows.views import WorkflowViewSet, WorkflowLogViewSet, WorkflowTraceViewSet
 from quotes.views import QuoteViewSet
 from invoices.views import InvoiceViewSet
 from support.views import CaseViewSet
@@ -44,6 +45,7 @@ router.register(r'campaigns', CampaignViewSet, basename='campaign')
 router.register(r'projects', ProjectViewSet)
 router.register(r'workflows', WorkflowViewSet)
 router.register(r'workflow-logs', WorkflowLogViewSet)
+router.register(r'workflow-traces', WorkflowTraceViewSet, basename='workflow-trace')
 router.register(r'quotes', QuoteViewSet, basename='quote')
 router.register(r'invoices', InvoiceViewSet, basename='invoice')
 router.register(r'cases', CaseViewSet)

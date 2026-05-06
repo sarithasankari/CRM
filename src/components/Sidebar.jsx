@@ -25,6 +25,7 @@ const navigationConfig = [
     children: [
       { name: 'Tasks', href: '/tasks' },
       { name: 'Calls', href: '/calls' },
+      { name: 'Emails', href: '/emails' },
       { name: 'Meetings', href: '/meetings' },
     ]
   },
@@ -39,6 +40,7 @@ const navigationConfig = [
   {
     name: 'Support', icon: LifeBuoy,
     children: [
+      { name: 'Support Dashboard', href: '/support' },
       { name: 'Cases', href: '/cases' },
       { name: 'Solutions', href: '/solutions' },
       { name: 'Services', href: '/services' },

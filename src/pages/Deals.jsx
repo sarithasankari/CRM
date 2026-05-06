@@ -10,22 +10,22 @@ import { useToast } from '../context/ToastContext';
 
 // ─── Pipeline stages (mirrors backend STAGE_PROBABILITY_MAP) ─────────────────
 const STAGES = [
-  { id: 'Qualification',            title: 'Qualification',            color: 'bg-blue-500' },
-  { id: 'Needs Analysis',           title: 'Needs Analysis',           color: 'bg-cyan-500' },
-  { id: 'Value Proposition',        title: 'Value Proposition',        color: 'bg-indigo-500' },
-  { id: 'Identify Decision Makers', title: 'Identify Decision Makers', color: 'bg-violet-500' },
-  { id: 'Proposal/Price Quote',     title: 'Proposal/Price Quote',     color: 'bg-purple-500' },
-  { id: 'Negotiation/Review',       title: 'Negotiation/Review',       color: 'bg-amber-500' },
-  { id: 'Closed Won',               title: 'Closed Won',               color: 'bg-emerald-500' },
-  { id: 'Closed Lost',              title: 'Closed Lost',              color: 'bg-rose-500' },
-  { id: 'Closed Lost to Competition', title: 'Closed Lost to Competition', color: 'bg-red-600' },
+  { id: 'qualification',            title: 'Qualification',            color: 'bg-blue-500' },
+  { id: 'needs_analysis',           title: 'Needs Analysis',           color: 'bg-cyan-500' },
+  { id: 'value_proposition',        title: 'Value Proposition',        color: 'bg-indigo-500' },
+  { id: 'identify_decision_makers', title: 'Identify Decision Makers', color: 'bg-violet-500' },
+  { id: 'proposal',                 title: 'Proposal/Price Quote',     color: 'bg-purple-500' },
+  { id: 'negotiation',              title: 'Negotiation/Review',       color: 'bg-amber-500' },
+  { id: 'closed_won',               title: 'Closed Won',               color: 'bg-emerald-500' },
+  { id: 'closed_lost',              title: 'Closed Lost',              color: 'bg-rose-500' },
+  { id: 'closed_lost_to_competition', title: 'Closed Lost to Competition', color: 'bg-red-600' },
 ];
 
 const EMPTY_FORM = {
   title: '',
   contact: '',
   value: '',
-  stage: 'Qualification',
+  stage: 'proposal',
   expected_close_date: '',
 };
 
@@ -51,7 +51,7 @@ function buildKanban(fetchedDeals) {
       expectedClose: deal.expected_close_date || 'TBD',
     };
 
-    const col = columns[deal.stage] ?? columns['Qualification'];
+    const col = columns[deal.stage] ?? columns['proposal'] ?? Object.values(columns)[0];
     col.dealIds.push(id);
   });
 
@@ -165,7 +165,7 @@ export default function Deals() {
         contact:             formData.contact,
         value:               parseFloat(formData.value) || 0,
         stage:               formData.stage,
-        expected_close_date: formData.expected_close_date || null,
+        expected_close_date: formData.expected_close_date,
       });
       addToast('Deal created successfully');
       setShowModal(false);
@@ -446,13 +446,14 @@ export default function Deals() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                    Deal Value
+                    Deal Value *
                   </label>
                   <div className="relative">
                     <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
                     <input
+                      required
                       type="number"
-                      min="0"
+                      min="0.01"
                       step="0.01"
                       placeholder="0.00"
                       value={formData.value}
@@ -481,11 +482,12 @@ export default function Deals() {
               {/* Close date */}
               <div>
                 <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  Expected Close Date
+                  Expected Close Date *
                 </label>
                 <div className="relative">
                   <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
                   <input
+                    required
                     type="date"
                     value={formData.expected_close_date}
                     onChange={e => setFormData(p => ({ ...p, expected_close_date: e.target.value }))}

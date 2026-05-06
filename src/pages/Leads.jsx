@@ -6,7 +6,8 @@ import {
   Loader2, AlertCircle, Trash2, Edit2, Filter, Search,
   MoreHorizontal, Mail, Phone, Building2, UserPlus, ChevronRight,
   Megaphone, Info, Send, Clock, FileText, Activity, Briefcase,
-  CheckCircle2, XCircle, ChevronLeft, ExternalLink, Paperclip
+  CheckCircle2, XCircle, ChevronLeft, ExternalLink, Paperclip,
+  Timer, ArrowRight
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import dayjs from 'dayjs';
@@ -18,7 +19,7 @@ dayjs.extend(isToday);
 // ─────────────────────────────────────────────────────────────────────────────
 // LeadDetailView — fully functional lead detail page
 // ─────────────────────────────────────────────────────────────────────────────
-function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusChange, getStatusStyles, addToast }) {
+function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusChange, getStatusStyles, addToast, onRefresh }) {
   const [activeTab, setActiveTab]         = useState('overview');
   const [activeSection, setActiveSection] = useState('overview');
   const [showMoreMenu, setShowMoreMenu]   = useState(false);
@@ -37,11 +38,101 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
   const moreMenuRef = useRef(null);
 
   // Modals for Task Completion
-  const [showCallModal, setShowCallModal] = useState(false);
-  const [callForm, setCallForm] = useState({ outcome: 'connected', duration: 0, notes: '' });
-  const [showMeetingModal, setShowMeetingModal] = useState(false);
-  const [meetingForm, setMeetingForm] = useState({ date: '', time: '', meeting_type: 'Discovery', status: 'scheduled', notes: '' });
+  const [showOutcomeModal, setShowOutcomeModal] = useState(false);
+  const [activeCallId, setActiveCallId] = useState(null);
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false);
+
+  // Timer logic for live calls
+  const [elapsed, setElapsed] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (timerRunning) {
+      timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [timerRunning]);
+
+  const formattedTime = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+
+  const handleStartCall = async (task) => {
+    try {
+      await tasksApi.startCall(task.id);
+      setActiveCallId(task.id);
+      setElapsed(0);
+      setTimerRunning(true);
+      addToast(`Call started: ${task.title}`, 'info');
+      
+      // Update local task state to in_progress
+      setCurrentTask({ ...task, status: 'in_progress' });
+    } catch {
+      addToast('Failed to start call', 'error');
+    }
+  };
+
+  const handleEndCall = () => {
+    setTimerRunning(false);
+    setShowOutcomeModal(true);
+  };
+
+  const handleSubmitOutcome = async (outcome) => {
+    if (!currentTask) return;
+    setIsSubmittingActivity(true);
+    try {
+      const res = await tasksApi.completeTask(currentTask.id, { outcome });
+      addToast(`Task completed — ${outcome}`, 'success');
+      
+      if (res.workflow_actions?.length) {
+        res.workflow_actions.forEach(a => addToast(`⚡ ${a}`, 'info'));
+      }
+
+      setShowOutcomeModal(false);
+      setActiveCallId(null);
+      setCurrentTask(null);
+      setElapsed(0);
+
+      // Refresh timeline
+      const activitiesRes = await activitiesApi.getAll();
+      const allActs = activitiesRes.results ?? activitiesRes;
+      setTimeline(allActs.filter(a => a.object_id === lead.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
+      
+      // Refresh lead to pick up backend-driven flags like deal_required
+      if (onRefresh) await onRefresh();
+
+      // Check for next task created by workflow
+      setTimeout(async () => {
+        const tasksRes = await tasksApi.getAll({ lead: lead.id, is_active: true });
+        const activeTasks = tasksRes.results ?? tasksRes;
+        if (activeTasks.length > 0) {
+          setCurrentTask(activeTasks[0]);
+        }
+      }, 1000);
+
+    } catch {
+      addToast('Failed to complete task', 'error');
+    } finally {
+      setIsSubmittingActivity(false);
+    }
+  };
+
+  const handleCompleteTaskGeneric = async () => {
+    if (!currentTask) return;
+    
+    if (currentTask.task_type === 'call') {
+      if (activeCallId) {
+        handleEndCall();
+      } else {
+        handleStartCall(currentTask);
+      }
+      return;
+    }
+    
+    // For other types, just show outcome modal directly
+    setShowOutcomeModal(true);
+  };
 
   // Close More menu on outside click
   useEffect(() => {
@@ -129,104 +220,6 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
     }
   };
 
-  const handleCompleteTask = async () => {
-    if (!currentTask) return;
-    
-    // Check task_type
-    if (currentTask.task_type === 'call' || currentTask.title.toLowerCase().includes('call')) {
-      setShowCallModal(true);
-      return;
-    }
-    if (currentTask.task_type === 'meeting' || currentTask.title.toLowerCase().includes('meeting')) {
-      setShowMeetingModal(true);
-      return;
-    }
-    
-    // Default complete
-    try {
-      await tasksApi.patch(currentTask.id, { status: 'completed' });
-      addToast('Task marked as complete!', 'success');
-      setSuggestedNextTask(currentTask.title.toLowerCase().includes('call') ? 'Send Proposal' : 'Follow-up Call');
-      setCurrentTask(null);
-      // Refresh timeline
-      const activitiesRes = await activitiesApi.getAll();
-      const allActs = activitiesRes.results ?? activitiesRes;
-      setTimeline(allActs.filter(a => a.object_id === lead.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
-    } catch(e) {}
-  };
-
-  const submitCallLog = async (e) => {
-    e.preventDefault();
-    setIsSubmittingActivity(true);
-    try {
-      // Create call
-      await callsApi.create({
-        related_to: lead.id,
-        content_type: 'lead',
-        object_id: lead.id,
-        direction: 'outbound',
-        outcome: callForm.outcome,
-        duration: parseInt(callForm.duration, 10),
-        notes: callForm.notes,
-        created_from_task: currentTask.id
-      });
-      // Mark task complete
-      await tasksApi.patch(currentTask.id, { status: 'completed' });
-      addToast('Call logged and task completed!', 'success');
-      
-      setShowCallModal(false);
-      setCallForm({ outcome: 'connected', duration: 0, notes: '' });
-      setCurrentTask(null);
-      
-      // Refresh timeline
-      setTimeout(async () => {
-        const activitiesRes = await activitiesApi.getAll();
-        const allActs = activitiesRes.results ?? activitiesRes;
-        setTimeline(allActs.filter(a => a.object_id === lead.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
-      }, 500);
-      
-    } catch(err) {
-      addToast('Failed to log call', 'error');
-    } finally {
-      setIsSubmittingActivity(false);
-    }
-  };
-
-  const submitMeetingLog = async (e) => {
-    e.preventDefault();
-    setIsSubmittingActivity(true);
-    try {
-      await meetingsApi.create({
-        title: `Meeting with ${lead.name}`,
-        related_to: lead.id,
-        content_type: 'lead',
-        object_id: lead.id,
-        status: meetingForm.status,
-        meeting_type: meetingForm.meeting_type,
-        start_time: meetingForm.date && meetingForm.time ? `${meetingForm.date}T${meetingForm.time}` : new Date().toISOString(),
-        notes: meetingForm.notes,
-        created_from_task: currentTask.id
-      });
-      await tasksApi.patch(currentTask.id, { status: 'completed' });
-      addToast('Meeting logged and task completed!', 'success');
-      
-      setShowMeetingModal(false);
-      setMeetingForm({ date: '', time: '', meeting_type: 'Discovery', status: 'scheduled', notes: '' });
-      setCurrentTask(null);
-      
-      setTimeout(async () => {
-        const activitiesRes = await activitiesApi.getAll();
-        const allActs = activitiesRes.results ?? activitiesRes;
-        setTimeline(allActs.filter(a => a.object_id === lead.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
-      }, 500);
-      
-    } catch(err) {
-      addToast('Failed to log meeting', 'error');
-    } finally {
-      setIsSubmittingActivity(false);
-    }
-  };
-
   const SIDEBAR_ITEMS = ['Overview', 'Notes', 'Emails', 'Activities', 'Deals', 'Tasks', 'Attachments'];
 
   return (
@@ -256,6 +249,14 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* Live Call Indicator in Header */}
+          {timerRunning && (
+            <div className="flex items-center bg-rose-50 text-rose-600 px-3 py-1 rounded-full text-xs font-bold animate-pulse mr-2 border border-rose-100">
+              <Timer className="w-3 h-3 mr-1.5" />
+              LIVE CALL: {formattedTime}
+            </div>
+          )}
+
           {/* Send Email */}
           <button
             onClick={() => setShowEmailModal(true)}
@@ -383,6 +384,29 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
 
               {activeTab === 'overview' && (
                 <>
+                  {/* Deal Required Reminder */}
+                  {lead.deal_required && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm p-5 mb-4 relative overflow-hidden animate-pulse">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-[12px] font-black text-amber-600 uppercase tracking-widest mb-1 flex items-center">
+                            🚨 Action Required: Create Deal
+                          </h4>
+                          <p className="text-[14px] font-bold text-slate-800 mt-1">
+                            A successful meeting was held. Please create a deal to progress this lead.
+                          </p>
+                        </div>
+                        <button 
+                          onClick={onConvert}
+                          className="px-6 py-2 bg-amber-600 text-white rounded-lg text-[13px] font-bold hover:bg-amber-700 transition-colors shadow-md shadow-amber-600/20 flex items-center gap-2"
+                        >
+                          <Briefcase className="w-4 h-4" /> Create Deal Now
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Smart Next Action block */}
                   {suggestedNextTask && (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-xl shadow-sm p-5 mb-4 relative overflow-hidden">
@@ -437,11 +461,14 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
 
                   {/* Current Task Card */}
                   {currentTask && (
-                    <div className="bg-gradient-to-r from-orange-50 to-white border border-orange-100 rounded-xl shadow-sm p-5 mb-4 relative overflow-hidden">
-                      <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
-                      <h4 className="text-[12px] font-black text-orange-600 uppercase tracking-widest mb-1 flex items-center">
-                        🔥 Current Task
-                      </h4>
+                    <div className={`bg-gradient-to-r ${timerRunning ? 'from-rose-50 to-white border-rose-200' : 'from-orange-50 to-white border-orange-100'} border rounded-xl shadow-sm p-5 mb-4 relative overflow-hidden transition-all`}>
+                      <div className={`absolute top-0 left-0 w-1 h-full ${timerRunning ? 'bg-rose-500' : 'bg-orange-400'}`}></div>
+                      <div className="flex items-center justify-between">
+                        <h4 className={`text-[12px] font-black ${timerRunning ? 'text-rose-600' : 'text-orange-600'} uppercase tracking-widest mb-1 flex items-center`}>
+                          {timerRunning ? <span className="flex items-center"><Timer className="w-3 h-3 mr-1 animate-pulse" /> LIVE CALL IN PROGRESS</span> : '🔥 Current Task'}
+                        </h4>
+                        {timerRunning && <span className="text-xl font-black tabular-nums text-rose-600">{formattedTime}</span>}
+                      </div>
                       <div className="flex items-center justify-between mt-2">
                         <div>
                           <p className="text-[15px] font-semibold text-slate-800">
@@ -450,23 +477,43 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                           <p className="text-[13px] text-slate-500 mt-0.5">
                             Due: <span className="font-medium text-slate-700">{currentTask.due_date ? dayjs(currentTask.due_date).format('MMM D') : 'N/A'}</span>
                             <span className="mx-2 text-slate-300">|</span>
-                            Last updated: <span className="font-medium text-slate-700">{currentTask.updated_at ? dayjs(currentTask.updated_at).fromNow() : 'Recently'}</span>
-                            {currentTask.update_count > 0 && <span className="ml-1 text-slate-400">({currentTask.update_count} updates)</span>}
+                            Priority: <span className={`font-bold ${currentTask.priority === 'high' ? 'text-rose-600' : 'text-slate-700'}`}>{currentTask.priority?.toUpperCase()}</span>
                           </p>
                         </div>
                         <div className="flex gap-2">
-                          <button 
-                            className="px-3 py-1.5 bg-white border border-slate-300 rounded text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-                            onClick={() => {/* Implement Action */}}
-                          >
-                            [ {currentTask.title.toLowerCase().includes('call') ? 'Call Now' : currentTask.title.toLowerCase().includes('email') ? 'Send Email' : 'Start'} ]
-                          </button>
-                          <button 
-                            className="px-3 py-1.5 bg-emerald-600 border border-emerald-700 rounded text-[12px] font-semibold text-white hover:bg-emerald-700"
-                            onClick={handleCompleteTask}
-                          >
-                            [ Complete & Log Activity ]
-                          </button>
+                          {!timerRunning ? (
+                            <>
+                              {currentTask.task_type === 'call' && (
+                                <button 
+                                  className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-[12px] font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 flex items-center gap-1.5"
+                                  onClick={() => handleStartCall(currentTask)}
+                                >
+                                  <Phone className="w-3.5 h-3.5" /> Start Call
+                                </button>
+                              )}
+                              {currentTask.task_type === 'meeting' && (
+                                <button 
+                                  className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[12px] font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 flex items-center gap-1.5"
+                                  onClick={() => addToast("Select Date/Time feature goes here", "info")}
+                                >
+                                  <Calendar className="w-3.5 h-3.5" /> Schedule Date/Time
+                                </button>
+                              )}
+                              <button 
+                                className="px-4 py-1.5 bg-white border border-slate-300 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+                                onClick={handleCompleteTaskGeneric}
+                              >
+                                {currentTask.task_type === 'call' ? 'Log Manually' : 'Log Outcome'}
+                              </button>
+                            </>
+                          ) : (
+                            <button 
+                              className="px-6 py-1.5 bg-rose-600 text-white rounded-lg text-[12px] font-bold shadow-lg shadow-rose-600/20 hover:bg-rose-700 flex items-center gap-1.5"
+                              onClick={handleEndCall}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" /> End Call
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -482,9 +529,11 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                       <div className="flex">
                         <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Lead Status</div>
                         <select
+                          disabled={true}
+                          title="Lead status is updated automatically by completing tasks."
                           value={lead.status || 'new'}
                           onChange={e => onStatusChange(e.target.value)}
-                          className={`px-2 py-1 rounded text-[11px] font-bold uppercase tracking-wider outline-none cursor-pointer border ${getStatusStyles(lead.status)}`}
+                          className={`px-2 py-1 rounded text-[11px] font-bold uppercase tracking-wider outline-none cursor-not-allowed opacity-80 border ${getStatusStyles(lead.status)}`}
                         >
                           <option value="new">New</option>
                           <option value="contacted">Contacted</option>
@@ -799,98 +848,58 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
         </div>
       )}
 
-      {/* ── Call Logging Modal ── */}
-      {showCallModal && (
+      {/* ── Outcome Selection Modal (Automated Flow) ── */}
+      {showOutcomeModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !isSubmittingActivity && setShowCallModal(false)} />
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-800 flex items-center gap-2"><Phone className="w-4 h-4 text-blue-600" /> Log Call</h3>
-              <button onClick={() => setShowCallModal(false)} disabled={isSubmittingActivity} className="p-1 text-gray-400 hover:text-gray-700">
-                <X className="w-4 h-4" />
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => !isSubmittingActivity && setShowOutcomeModal(null)} />
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md overflow-hidden relative z-10">
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-black text-slate-900">Record Outcome</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{currentTask?.title}</p>
+              </div>
+              <button onClick={() => !isSubmittingActivity && setShowOutcomeModal(null)} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all">
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={submitCallLog} className="p-6 space-y-4">
-              <div>
-                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Outcome *</label>
-                <select required value={callForm.outcome} onChange={e => setCallForm(p => ({ ...p, outcome: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none">
-                  <option value="connected">Connected</option>
-                  <option value="interested">Interested</option>
-                  <option value="no_answer">No Answer</option>
-                  <option value="not_interested">Not Interested</option>
-                  <option value="voicemail">Voicemail</option>
-                  <option value="follow_up">Follow-up Required</option>
-                </select>
+            <div className="p-8">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Select the outcome of this {currentTask?.task_type || 'task'}:</p>
+              <div className="grid grid-cols-1 gap-3">
+                {(() => {
+                  const tt = currentTask?.task_type || 'call';
+                  if (tt === 'meeting') return [
+                    { value: 'interested',      label: 'Interested',      color: 'emerald', icon: '🟢' },
+                    { value: 'not_interested',  label: 'Not Interested',  color: 'rose',    icon: '🔴' },
+                  ];
+                  if (tt === 'proposal') return [
+                    { value: 'success',         label: 'Accepted (Won)',         color: 'blue',    icon: '✅' },
+                    { value: 'failed',          label: 'Rejected (Lost)',        color: 'slate',   icon: '❌' },
+                  ];
+                  return [
+                    { value: 'success',         label: 'Connected (Success)',   color: 'emerald', icon: '📞' },
+                    { value: 'no_response',     label: 'No Response',           color: 'amber',   icon: '🟡' },
+                    { value: 'not_interested',  label: 'Not Interested',        color: 'rose',    icon: '🔴' },
+                  ];
+                })().map(opt => (
+                  <button key={opt.value} disabled={isSubmittingActivity}
+                    onClick={() => handleSubmitOutcome(opt.value)}
+                    className={`w-full px-5 py-4 rounded-2xl border-2 text-left font-bold text-sm transition-all hover:-translate-y-0.5 hover:shadow-lg flex items-center justify-between group
+                      ${opt.color === 'emerald' ? 'border-emerald-200 hover:bg-emerald-50 hover:border-emerald-400 text-emerald-700' :
+                        opt.color === 'amber'   ? 'border-amber-200 hover:bg-amber-50 hover:border-amber-400 text-amber-700' :
+                        opt.color === 'rose'    ? 'border-rose-200 hover:bg-rose-50 hover:border-rose-400 text-rose-700' :
+                        opt.color === 'blue'    ? 'border-blue-200 hover:bg-blue-50 hover:border-blue-400 text-blue-700' :
+                                                  'border-slate-200 hover:bg-slate-50 hover:border-slate-400 text-slate-700'}`}
+                  >
+                    <span className="flex items-center gap-3">
+                      <span className="text-lg">{opt.icon}</span>
+                      {opt.label}
+                    </span>
+                    {isSubmittingActivity ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                  </button>
+                ))}
               </div>
-              <div>
-                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Duration (minutes) *</label>
-                <input type="number" required min="0" value={callForm.duration} onChange={e => setCallForm(p => ({ ...p, duration: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none" />
-              </div>
-              <div>
-                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Notes</label>
-                <textarea rows={3} value={callForm.notes} onChange={e => setCallForm(p => ({ ...p, notes: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none resize-none" />
-              </div>
-              <div className="flex justify-end pt-2">
-                <button type="button" onClick={() => setShowCallModal(false)} disabled={isSubmittingActivity} className="mr-2 px-4 py-2 text-[13px] font-semibold text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button type="submit" disabled={isSubmittingActivity} className="px-5 py-2 text-[13px] font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2">
-                  {isSubmittingActivity && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save Call
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ── Meeting Logging Modal ── */}
-      {showMeetingModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !isSubmittingActivity && setShowMeetingModal(false)} />
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-800 flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600" /> Log Meeting</h3>
-              <button onClick={() => setShowMeetingModal(false)} disabled={isSubmittingActivity} className="p-1 text-gray-400 hover:text-gray-700">
-                <X className="w-4 h-4" />
-              </button>
+              <p className="mt-6 text-[10px] text-center text-slate-400 font-medium">⚡ Selecting an outcome will automatically trigger next steps and update lead status.</p>
             </div>
-            <form onSubmit={submitMeetingLog} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Date *</label>
-                  <input type="date" required value={meetingForm.date} onChange={e => setMeetingForm(p => ({ ...p, date: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Time *</label>
-                  <input type="time" required value={meetingForm.time} onChange={e => setMeetingForm(p => ({ ...p, time: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Meeting Type *</label>
-                <select required value={meetingForm.meeting_type} onChange={e => setMeetingForm(p => ({ ...p, meeting_type: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none">
-                  <option value="Discovery">Discovery Call</option>
-                  <option value="Demo">Product Demo</option>
-                  <option value="Follow-up">Follow-up</option>
-                  <option value="Negotiation">Negotiation</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Status *</label>
-                <select required value={meetingForm.status} onChange={e => setMeetingForm(p => ({ ...p, status: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none">
-                  <option value="scheduled">Scheduled</option>
-                  <option value="completed">Completed</option>
-                  <option value="no_show">No Show</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Notes</label>
-                <textarea rows={3} value={meetingForm.notes} onChange={e => setMeetingForm(p => ({ ...p, notes: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-[13px] outline-none resize-none" />
-              </div>
-              <div className="flex justify-end pt-2">
-                <button type="button" onClick={() => setShowMeetingModal(false)} disabled={isSubmittingActivity} className="mr-2 px-4 py-2 text-[13px] font-semibold text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button type="submit" disabled={isSubmittingActivity} className="px-5 py-2 text-[13px] font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2">
-                  {isSubmittingActivity && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save Meeting
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -959,7 +968,7 @@ export default function Leads() {
   const [convertingLead, setConvertingLead] = useState(false);
   const [conversionSuccess, setConversionSuccess] = useState(null);
   const [convertData, setConvertData] = useState({
-    createDeal: false, dealName: '', amount: 0, stage: 'Qualification',
+    createDeal: false, dealName: '', amount: '', stage: 'proposal',
     closingDate: '', campaign_source: '', contact_role: '',
   });
   const [isLoading, setIsLoading] = useState(true);
@@ -1004,6 +1013,40 @@ export default function Leads() {
     fetchLeads();
     fetchConversionRate();
   }, [fetchLeads, fetchConversionRate]);
+
+  // Deep linking logic
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const leadId = params.get('id');
+    if (leadId && !viewingLead) {
+      const fetchDeepLinkedLead = async () => {
+        try {
+          const lead = await leadsApi.getById(leadId);
+          setViewingLead(lead);
+        } catch (err) {
+          console.error("Failed to fetch deep-linked lead", err);
+          // Optional: clear param if lead not found
+        }
+      };
+      fetchDeepLinkedLead();
+    }
+  }, [viewingLead]);
+
+  // Sync URL with viewing state
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (viewingLead) {
+      if (params.get('id') !== viewingLead.id.toString()) {
+        params.set('id', viewingLead.id);
+        window.history.pushState({}, '', `${window.location.pathname}?${params.toString()}`);
+      }
+    } else {
+      if (params.has('id')) {
+        params.delete('id');
+        window.history.pushState({}, '', `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`);
+      }
+    }
+  }, [viewingLead]);
 
   // ─── CRUD Handlers ───────────────────────────────────────────────────────────
 
@@ -1122,6 +1165,7 @@ export default function Leads() {
       case 'contacted': return 'bg-amber-50 text-amber-600 border-amber-100';
       case 'qualified': return 'bg-blue-50 text-blue-600 border-blue-100';
       case 'lost':      return 'bg-rose-50 text-rose-600 border-rose-100';
+      case 'converted': return 'bg-indigo-50 text-indigo-600 border-indigo-100';
       default:          return 'bg-slate-50 text-slate-600 border-slate-100';
     }
   };
@@ -1187,11 +1231,21 @@ export default function Leads() {
     {
       header: 'Status',
       accessor: 'status',
-      render: (row) => (
-        <span className={`px-2.5 py-1 inline-flex text-[10px] font-bold rounded-lg capitalize border shadow-sm ${getStatusStyles(row.status)}`}>
-          {row.status || 'New'}
-        </span>
-      )
+      render: (row) => {
+        const isConverted = row.status?.toLowerCase() === 'qualified' && row.contact;
+        return (
+          <div className="flex items-center space-x-2">
+            <span className={`px-2.5 py-1 inline-flex text-[10px] font-bold rounded-lg capitalize border shadow-sm ${getStatusStyles(row.status)}`}>
+              {row.status || 'New'}
+            </span>
+            {isConverted && (
+              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded text-[9px] font-bold uppercase tracking-tight">
+                Converted
+              </span>
+            )}
+          </div>
+        );
+      }
     },
     {
       header: 'Created',
@@ -1313,37 +1367,37 @@ export default function Leads() {
                 {convertData.createDeal && (
                   <div className="mt-6 ml-6 space-y-4 max-w-lg">
                     <div className="flex items-center">
-                      <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Amount</div>
+                      <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Amount *</div>
                       <div className="flex-1 relative flex items-center border border-gray-300 rounded overflow-hidden focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
                         <span className="px-3 py-1.5 bg-gray-50 border-r border-gray-300 text-[13px] text-gray-600">Rs.</span>
-                        <input type="number" className="w-full px-3 py-1.5 text-[13px] outline-none" value={convertData.amount || ''} onChange={e => setConvertData({...convertData, amount: e.target.value})} />
+                        <input required={convertData.createDeal} type="number" className="w-full px-3 py-1.5 text-[13px] outline-none" value={convertData.amount || ''} onChange={e => setConvertData({...convertData, amount: e.target.value})} placeholder="Enter deal amount" />
                         <Info className="w-4 h-4 text-gray-400 absolute right-2" />
                       </div>
                     </div>
                     
                     <div className="flex items-center">
-                      <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Deal Name</div>
+                      <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Deal Name *</div>
                       <div className="flex-1">
-                        <input type="text" className="w-full px-3 py-1.5 border border-gray-300 rounded text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" value={convertData.dealName || viewingLead?.company || viewingLead?.name || ''} onChange={e => setConvertData({...convertData, dealName: e.target.value})} />
+                        <input required={convertData.createDeal} type="text" className="w-full px-3 py-1.5 border border-gray-300 rounded text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" value={convertData.dealName || viewingLead?.company || viewingLead?.name || ''} onChange={e => setConvertData({...convertData, dealName: e.target.value})} />
                       </div>
                     </div>
                     
                     <div className="flex items-center">
-                      <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Closing Date</div>
+                      <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Closing Date *</div>
                       <div className="flex-1">
-                        <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" value={convertData.closingDate || ''} onChange={e => setConvertData({...convertData, closingDate: e.target.value})} />
+                        <input required={convertData.createDeal} type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" value={convertData.closingDate || ''} onChange={e => setConvertData({...convertData, closingDate: e.target.value})} />
                       </div>
                     </div>
                     
                     <div className="flex items-center">
                       <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Stage</div>
                       <div className="flex-1">
-                        <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none bg-no-repeat bg-[right_0.5rem_center]" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundSize: '1em'}} value={convertData.stage || 'Qualification'} onChange={e => setConvertData({...convertData, stage: e.target.value})}>
+                        <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none bg-no-repeat bg-[right_0.5rem_center]" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundSize: '1em'}} value={convertData.stage || 'proposal'} onChange={e => setConvertData({...convertData, stage: e.target.value})}>
+                          <option value="proposal">Proposal/Price Quote</option>
                           <option value="Qualification">Qualification</option>
                           <option value="Needs Analysis">Needs Analysis</option>
                           <option value="Value Proposition">Value Proposition</option>
                           <option value="Identify Decision Makers">Identify Decision Makers</option>
-                          <option value="Proposal/Price Quote">Proposal/Price Quote</option>
                           <option value="Negotiation/Review">Negotiation/Review</option>
                           <option value="Closed Won">Closed Won</option>
                           <option value="Closed Lost">Closed Lost</option>
@@ -1448,6 +1502,15 @@ export default function Leads() {
         }}
         getStatusStyles={getStatusStyles}
         addToast={addToast}
+        onRefresh={async () => {
+          try {
+            const updated = await leadsApi.getById(viewingLead.id);
+            setViewingLead(updated);
+            fetchLeads(); // Sync main list too
+          } catch (err) {
+            console.error("Failed to refresh lead", err);
+          }
+        }}
       />
     );
   }
