@@ -12,7 +12,7 @@ class Deal(models.Model):
 
     lead = models.ForeignKey(Lead, on_delete=models.SET_NULL, related_name="deals", null=True, blank=True)
     account = models.ForeignKey(Account, on_delete=models.CASCADE, null=True, blank=True)
-    value = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    value = models.DecimalField(max_digits=20, decimal_places=2, default=0.00)
     is_active = models.BooleanField(default=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -26,6 +26,21 @@ class Deal(models.Model):
     notes = models.TextField(blank=True, null=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     contact = models.ForeignKey(Contact, on_delete=models.SET_NULL, null=True, blank=True)
+
+    @property
+    def probability(self):
+        mapping = {
+            'qualification': 10,
+            'needs_analysis': 20,
+            'value_proposition': 40,
+            'identify_decision_makers': 60,
+            'proposal': 75,
+            'negotiation': 90,
+            'closed_won': 100,
+            'closed_lost': 0,
+            'closed_lost_to_competition': 0,
+        }
+        return mapping.get(self.stage.lower() if self.stage else '', 0)
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -71,7 +86,7 @@ class Product(models.Model):
 class Quote(models.Model):
     deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name="deals_quotes")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="deals_quotes")
-    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    total_amount = models.DecimalField(max_digits=20, decimal_places=2)
     is_accepted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -80,7 +95,7 @@ class Quote(models.Model):
 
 class Invoice(models.Model):
     deal = models.OneToOneField(Deal, on_delete=models.CASCADE, related_name="deals_invoice")
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    amount = models.DecimalField(max_digits=20, decimal_places=2)
     is_paid = models.BooleanField(default=False)
     issued_at = models.DateTimeField(auto_now_add=True)
 

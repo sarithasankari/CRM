@@ -28,6 +28,8 @@ class Task(models.Model):
         ('no_response', 'No Response'),
         ('interested', 'Interested'),
         ('not_interested', 'Not Interested'),
+        ('follow_up', 'Follow-up Required'),
+        ('connected', 'Connected'),
     )
 
     PRIORITY_CHOICES = (
@@ -65,6 +67,7 @@ class Task(models.Model):
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='medium')
     due_date = models.DateTimeField(null=True, blank=True)
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    active_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="active_tasks")
     source_object_id = models.CharField(max_length=100, blank=True, null=True)
     next_action = models.CharField(max_length=255, blank=True, null=True)
     steps = models.JSONField(default=dict, blank=True, null=True)

@@ -93,28 +93,28 @@ export const authService = {
 
 // Generic CRUD Generator
 export const createResource = (endpoint) => ({
-  getAll: async (params = {}) => {
-    const response = await api.get(`/${endpoint}/`, { params });
+  getAll: async (params = {}, config = {}) => {
+    const response = await api.get(`/${endpoint}/`, { params, ...config });
     return response.data;
   },
-  getById: async (id) => {
-    const response = await api.get(`/${endpoint}/${id}/`);
+  getById: async (id, config = {}) => {
+    const response = await api.get(`/${endpoint}/${id}/`, config);
     return response.data;
   },
-  create: async (data) => {
-    const response = await api.post(`/${endpoint}/`, data);
+  create: async (data, config = {}) => {
+    const response = await api.post(`/${endpoint}/`, data, config);
     return response.data;
   },
-  update: async (id, data) => {
-    const response = await api.put(`/${endpoint}/${id}/`, data);
+  update: async (id, data, config = {}) => {
+    const response = await api.put(`/${endpoint}/${id}/`, data, config);
     return response.data;
   },
-  patch: async (id, data) => {
-    const response = await api.patch(`/${endpoint}/${id}/`, data);
+  patch: async (id, data, config = {}) => {
+    const response = await api.patch(`/${endpoint}/${id}/`, data, config);
     return response.data;
   },
-  delete: async (id) => {
-    const response = await api.delete(`/${endpoint}/${id}/`);
+  delete: async (id, config = {}) => {
+    const response = await api.delete(`/${endpoint}/${id}/`, config);
     return response.data;
   }
 });

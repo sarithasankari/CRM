@@ -137,8 +137,9 @@ def execute_compensation(action, instance, event, result):
 
 
 def create_task(action, instance, event):
-    """Create or update a task with smart assignment."""
+    """Create or update a task with smart assignment and request-cycle capturing."""
     from tasks.models import Task
+    from .context import capture_task
 
     data = action.action_data or {}
     title = _render(data.get('title', 'Follow-up Task'), instance, event)
@@ -147,23 +148,16 @@ def create_task(action, instance, event):
     if task_type not in TASK_TYPES:
         raise ValueError(f"Invalid task_type '{task_type}'. Must be one of {TASK_TYPES}")
 
-    # Calculate due date
+    # Calculate due date (Standardized to 'Today' for high-visibility follow-ups)
     due_days = int(data.get('due_days', data.get('due_days_override', action.delay_days or 0)))
     due_date = timezone.now() + timedelta(days=due_days)
     
-    # Resolve assignee
+    # Resolve assignee (Ensures task follows the active executor)
     assignee = _resolve_assignee(action, instance)
     
     # Build task links
     links = _task_links(instance, data)
     description = _render(data.get('description', ''), instance, event)
-
-    # Check for existing task to update instead of create
-    existing = Task.objects.filter(
-        title__iexact=title,
-        is_active=True,
-        **_non_null_links(links)
-    ).first()
 
     task_defaults = {
         'task_type': task_type,
@@ -176,19 +170,21 @@ def create_task(action, instance, event):
         **links,
     }
 
-    if existing:
-        # Update existing task
-        for field, value in task_defaults.items():
-            setattr(existing, field, value)
-        existing.save()
-        task = existing
-        message = f"Updated existing task {task.pk}: {title}"
-    else:
-        # Create new task
-        task = Task.objects.create(title=title, **task_defaults)
-        message = f"Created task {task.pk}: {title}"
+    # Use update_or_create to prevent duplicate open tasks for the same subject
+    task, created = Task.objects.update_or_create(
+        title=title,
+        is_active=True,
+        **_non_null_links(links),
+        defaults=task_defaults
+    )
 
-    log_activity('created', message, instance, assignee)
+    # Capture for immediate UI feedback (Requirement 6)
+    capture_task(task)
+
+    target_name = getattr(instance, 'name', getattr(instance, 'title', 'Unknown Prospect'))
+    message = f"{'Created' if created else 'Updated'} task for {target_name}: {title}"
+
+    log_activity('created' if created else 'updated', message, instance, assignee)
     return ActionResult('create_task', message=message, created_object=f"tasks.Task:{task.pk}")
 
 
@@ -338,32 +334,38 @@ def send_notification(action, instance, event):
 def convert_lead_action(action, instance, event):
     """Convert a Lead to Contact, Account, and Deal."""
     from leads.models import Lead
+    from tasks.models import Task
     from workflows.services import convert_lead
 
-    if not isinstance(instance, Lead):
-        raise ValueError('convert_lead action requires a Lead instance.')
+    # If triggered from a Task, resolve the associated Lead
+    lead = instance
+    if isinstance(instance, Task):
+        lead = instance.lead
+    
+    if not isinstance(lead, Lead):
+        raise ValueError('convert_lead action requires a Lead instance or an object linked to a Lead.')
 
     data = action.action_data or {}
     create_deal = data.get('create_deal', True)
     deal_data = {
-        'title': data.get('deal_title') or f"{instance.company or instance.name} Deal",
+        'title': _render(data.get('deal_title') or "{company} - {name} Deal", lead, event),
         'value': data.get('deal_value', 0),
-        'stage': data.get('deal_stage', 'Qualification'),
+        'stage': data.get('deal_stage', 'qualification'),
     }
 
-    result = convert_lead(instance, owner=instance.assigned_to, create_deal=create_deal, deal_data=deal_data)
+    result = convert_lead(lead, owner=lead.assigned_to, create_deal=create_deal, deal_data=deal_data)
     
     log_activity(
         'converted',
-        f"Workflow converted lead {instance.pk} to contact {result['contact'].pk}",
-        instance,
-        instance.assigned_to
+        f"Workflow converted lead {lead.pk} to contact {result['contact'].pk}",
+        lead,
+        lead.assigned_to
     )
     
     return ActionResult(
         'convert_lead',
         message='Lead converted successfully',
-        created_object=f"leads.Lead:{instance.pk}"
+        created_object=f"leads.Lead:{lead.pk}"
     )
 
 
@@ -487,11 +489,20 @@ def _render(template, instance, event):
     value = str(template)
     for key, replacement in {
         'id': instance.pk,
-        'name': getattr(instance, 'name', ''),
+        'name': (
+            getattr(instance, 'name', None) or 
+            getattr(getattr(instance, 'lead', None), 'name', None) or 
+            getattr(getattr(instance, 'contact', None), 'name', None) or 
+            getattr(getattr(instance, 'account', None), 'name', '')
+        ),
         'title': getattr(instance, 'title', ''),
         'status': getattr(instance, 'status', ''),
         'stage': getattr(instance, 'stage', ''),
-        'company': getattr(instance, 'company', ''),
+        'company': (
+            getattr(instance, 'company', None) or 
+            getattr(getattr(instance, 'lead', None), 'company', None) or 
+            getattr(getattr(instance, 'account', None), 'name', '')
+        ),
     }.items():
         value = value.replace('{' + key + '}', str(replacement or ''))
     for key, replacement in event.get('extra', {}).items():

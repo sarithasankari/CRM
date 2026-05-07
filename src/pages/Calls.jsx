@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 
 /* ─── Constants ──────────────────────────────────────────── */
 const OUTCOME_OPTIONS = [
-  { value: 'success',         label: 'Connected (Success)',   color: 'emerald', icon: '📞', nextAction: 'Update to Contacted & Follow-up' },
+  { value: 'connected',      label: 'Connected (Success)',   color: 'emerald', icon: '📞', nextAction: 'Update to Contacted & Follow-up' },
   { value: 'no_response',     label: 'No Response',           color: 'amber',   icon: '🟡', nextAction: 'Reschedule Call Task' },
   { value: 'not_interested',  label: 'Not Interested',        color: 'rose',    icon: '🔴', nextAction: 'Mark Lead as Lost' },
 ];
@@ -64,7 +64,7 @@ export default function Calls() {
   const [search, setSearch]       = useState('');
   const [activeCallId, setActiveCallId] = useState(null);
   const [outcomeModal, setOutcomeModal] = useState(null);
-  const [submitting, setSubmitting]     = useState(false);
+  const [submittingOutcome, setSubmittingOutcome]     = useState(null);
   const [activityLog, setActivityLog]   = useState([]);
   const [logTaskId, setLogTaskId]       = useState(null);
   const timer = useCallTimer();
@@ -82,6 +82,17 @@ export default function Calls() {
       ]);
       setDashboard(dash);
       setMetrics(met);
+
+      // Verify activeCallId consistency (ignore if actively in a call to prevent UI flicker)
+      if (activeCallId && !timer.running) {
+        const strActiveId = String(activeCallId);
+        const stillInProgress = (dash.in_progress || []).some(t => String(t.id) === strActiveId);
+        if (!stillInProgress) {
+          setActiveCallId(null);
+          timer.stop();
+          addToast("Active call task was updated or moved", "info");
+        }
+      }
     } catch {
       setError('Failed to load call dashboard.');
     } finally {
@@ -93,9 +104,10 @@ export default function Calls() {
 
   /* ── Actions ─────────────────────────────────────────────── */
   const handleStartCall = async (task) => {
+    const strTaskId = String(task.id);
     try {
       await tasksApi.startCall(task.id);
-      setActiveCallId(task.id);
+      setActiveCallId(strTaskId);
       timer.start();
       addToast(`Call started: ${task.title}`);
       fetchData();
@@ -110,10 +122,33 @@ export default function Calls() {
   };
 
   const handleSubmitOutcome = async (task, outcome) => {
-    setSubmitting(true);
+    if (submittingOutcome) return;
+    
+    setSubmittingOutcome(outcome);
+    
+    // Safety timeout to prevent UI freeze if API hangs (Requirement 3)
+    const timeout = setTimeout(() => {
+      if (submittingOutcome) {
+        setSubmittingOutcome(null);
+        addToast("Recording taking longer than expected. Please check your connection.", "warning");
+      }
+    }, 10000);
+
     try {
       const res = await tasksApi.completeTask(task.id, { outcome });
       addToast(`Task completed — ${outcome}`);
+      
+      // Handle newly created tasks from workflow (instant UI feedback)
+      if (res.new_tasks && res.new_tasks.length > 0) {
+        setDashboard(prev => ({
+          ...prev,
+          in_progress: [
+            ...(prev.in_progress || []),
+            ...res.new_tasks.filter(nt => nt.status === 'in_progress' || nt.task_type === 'follow_up')
+          ]
+        }));
+      }
+
       if (res.workflow_actions?.length) {
         res.workflow_actions.forEach(a => addToast(`⚡ ${a}`, 'info'));
       }
@@ -124,16 +159,18 @@ export default function Calls() {
     } catch {
       addToast('Failed to complete task', 'error');
     } finally {
-      setSubmitting(false);
+      clearTimeout(timeout);
+      setSubmittingOutcome(null);
     }
   };
 
   const handleViewLog = async (taskId) => {
-    if (logTaskId === taskId) { setLogTaskId(null); return; }
+    const strTaskId = String(taskId);
+    if (logTaskId === strTaskId) { setLogTaskId(null); return; }
     try {
       const data = await tasksApi.activityLog(taskId);
       setActivityLog(data);
-      setLogTaskId(taskId);
+      setLogTaskId(strTaskId);
     } catch {
       addToast('Failed to load activity log', 'error');
     }
@@ -207,7 +244,10 @@ export default function Calls() {
               <p className="text-2xl font-black tabular-nums">{timer.formatted}</p>
             </div>
           </div>
-          <button onClick={() => { const t = allTasks.find(t => t.id === activeCallId); if (t) handleEndCall(t); }}
+          <button onClick={() => { 
+            const t = allTasks.find(t => String(t.id) === String(activeCallId)); 
+            if (t) handleEndCall(t); 
+          }}
             className="px-6 py-3 bg-white text-blue-700 rounded-2xl font-black text-sm hover:bg-blue-50 transition-all flex items-center space-x-2">
             <CheckCircle className="w-4 h-4" /><span>End Call</span>
           </button>
@@ -263,10 +303,11 @@ export default function Calls() {
         ) : (
           <ul className="divide-y divide-slate-50">
             {filtered.map(task => {
+              const strTaskId = String(task.id);
               const bucket = getBucket(task);
-              const isActive = activeCallId === task.id;
+              const isActive = String(activeCallId) === strTaskId;
               return (
-                <li key={task.id} className={`px-8 py-5 transition-all group ${isActive ? 'bg-blue-50/50 border-l-4 border-blue-500' : 'hover:bg-slate-50/50'}`}>
+                <li key={strTaskId} className={`px-8 py-5 transition-all group ${isActive ? 'bg-blue-50/50 border-l-4 border-blue-500' : 'hover:bg-slate-50/50'}`}>
                   <div className="flex items-center gap-5">
                     {/* Icon */}
                     <div className={`flex-shrink-0 p-3.5 rounded-2xl transition-transform group-hover:scale-110 ${isActive ? 'bg-blue-100' : 'bg-slate-50'}`}>
@@ -319,8 +360,8 @@ export default function Calls() {
                             <ArrowRight className="w-3.5 h-3.5 mr-1.5" /> Set Outcome
                           </button>
                         )}
-                        <button onClick={() => handleViewLog(task.id)}
-                          className={`p-2 rounded-xl border transition-all ${logTaskId === task.id ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-400 hover:text-indigo-600'}`}>
+                          <button onClick={() => handleViewLog(task.id)}
+                          className={`p-2 rounded-xl border transition-all ${String(logTaskId) === strTaskId ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-400 hover:text-indigo-600'}`}>
                           <Activity className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -328,10 +369,10 @@ export default function Calls() {
                   </div>
 
                   {/* Inline Activity Timeline */}
-                  {logTaskId === task.id && activityLog.length > 0 && (
+                  {String(logTaskId) === strTaskId && activityLog.length > 0 && (
                     <div className="mt-4 ml-16 border-l-2 border-indigo-100 pl-4 space-y-2 animate-fade-in">
                       {activityLog.slice(0, 10).map((log, i) => (
-                        <div key={i} className="flex items-start gap-3">
+                        <div key={log.id || `${task.id}-log-${i}`} className="flex items-start gap-3">
                           <div className="w-2 h-2 rounded-full bg-indigo-400 mt-1.5 flex-shrink-0" />
                           <div>
                             <p className="text-xs font-bold text-slate-700">
@@ -393,12 +434,12 @@ export default function Calls() {
                              onClick={() => handleViewLog(task.id)}
                              className="text-[10px] font-black text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors"
                            >
-                             {logTaskId === task.id ? 'Close Log' : 'View Log'}
+                             {String(logTaskId) === String(task.id) ? 'Close Log' : 'View Log'}
                            </button>
                         </div>
                       </div>
                     </div>
-                    {logTaskId === task.id && (
+                    {String(logTaskId) === String(task.id) && (
                       <div className="mt-4 ml-14 p-4 bg-white rounded-2xl border border-slate-100 shadow-inner animate-in slide-in-from-top-2">
                         <div className="space-y-3">
                           {activityLog.map((log, i) => (
@@ -425,14 +466,14 @@ export default function Calls() {
       {/* Outcome Modal */}
       {outcomeModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => !submitting && setOutcomeModal(null)} />
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => !submittingOutcome && setOutcomeModal(null)} />
           <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md overflow-hidden relative z-10">
             <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
               <div>
                 <h3 className="text-xl font-black text-slate-900">Record Outcome</h3>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{outcomeModal.title}</p>
               </div>
-              <button onClick={() => !submitting && setOutcomeModal(null)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all border border-slate-100">
+              <button onClick={() => !submittingOutcome && setOutcomeModal(null)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all border border-slate-100">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -440,9 +481,11 @@ export default function Calls() {
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Select call outcome:</p>
               <div className="grid grid-cols-1 gap-3">
                 {OUTCOME_OPTIONS.map(opt => (
-                  <button key={opt.value} disabled={submitting}
+                  <button key={opt.value} 
+                    disabled={submittingOutcome === opt.value}
                     onClick={() => handleSubmitOutcome(outcomeModal, opt.value)}
-                    className={`w-full px-5 py-4 rounded-2xl border-2 text-left font-bold text-sm transition-all hover:-translate-y-0.5 hover:shadow-lg flex items-center justify-between group
+                    className={`w-full px-5 py-4 rounded-2xl border-2 text-left font-bold text-sm transition-all flex items-center justify-between group
+                      ${submittingOutcome === opt.value ? 'opacity-50 cursor-not-allowed border-slate-300' : 'hover:-translate-y-0.5 hover:shadow-lg'}
                       ${opt.color === 'emerald' ? 'border-emerald-200 hover:bg-emerald-50 hover:border-emerald-400 text-emerald-700' :
                         opt.color === 'amber'   ? 'border-amber-200 hover:bg-amber-50 hover:border-amber-400 text-amber-700' :
                         opt.color === 'rose'    ? 'border-rose-200 hover:bg-rose-50 hover:border-rose-400 text-rose-700' :
@@ -458,7 +501,7 @@ export default function Calls() {
                         {opt.nextAction ? `→ Workflow: ${opt.nextAction}` : '—'}
                       </span>
                     </div>
-                    {submitting ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" /> : <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                    {submittingOutcome === opt.value ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" /> : <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />}
                   </button>
                 ))}
               </div>

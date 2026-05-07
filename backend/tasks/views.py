@@ -48,14 +48,15 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         base_qs = Task.objects.select_related('assigned_to', 'lead', 'contact', 'deal')
 
+        from django.db.models import Q
         if user.role == 'admin':
             return base_qs.all()
         if user.role == 'manager':
             if not user.team:
                 return base_qs.none()
-            return base_qs.filter(assigned_to__team=user.team)
+            return base_qs.filter(Q(assigned_to__team=user.team) | Q(active_by=user))
         if user.role == 'sales':
-            return base_qs.filter(assigned_to=user)
+            return base_qs.filter(Q(assigned_to=user) | Q(active_by=user))
 
         return base_qs.none()
 
@@ -168,10 +169,18 @@ class TaskViewSet(viewsets.ModelViewSet):
             task._current_user = request.user
             task.status = 'in_progress'
             task.is_active = True
+            
+            # Requirement: Reassign to current executor if different from original assignee
+            if task.assigned_to != request.user:
+                logger.info(f"[Tasks] Reassigning task {task.pk} to {request.user.username} for call execution")
+                task.assigned_to = request.user
+            
+            task.active_by = request.user
+
             metadata = task.metadata or {}
             metadata['call_started_at'] = timezone.now().isoformat()
             task.metadata = metadata
-            task.save(update_fields=['status', 'is_active', 'metadata', 'updated_at'])
+            task.save(update_fields=['status', 'is_active', 'metadata', 'assigned_to', 'active_by', 'updated_at'])
 
         serializer = self.get_serializer(task)
         return Response({'message': 'Call started.', 'task': serializer.data})
@@ -244,7 +253,13 @@ class TaskViewSet(viewsets.ModelViewSet):
             task.outcome = outcome
             task.is_active = False
             task.completed_at = now
+            task.active_by = None
             task.metadata = metadata
+            
+            # Ensure ownership is transferred to the person who actually completed the work
+            if task.assigned_to != request.user:
+                task.assigned_to = request.user
+
             if notes:
                 task.notes = notes
             if call_duration:
@@ -252,19 +267,21 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task.call_outcome = outcome
 
             task.save()
+            
+            # Workflow actions are now automatically triggered via signals in workflows/signals.py
+            # This ensures consistency whether tasks are completed via API or background jobs.
+            workflow_actions = [] 
 
-            # Use explicit Event Dispatcher (Requirement 3)
-            from workflows.dispatcher import dispatch_event
-            chain_id = dispatch_event('task', 'on_task_complete', task)
-
-            # Run dynamic, config-driven workflow rules with chain tracking
-            from workflows.engine import execute_workflow_rules
-            workflow_actions = execute_workflow_rules(task, chain_id=chain_id)
+        from workflows.context import get_captured_tasks, clear_captured_tasks
+        captured = get_captured_tasks()
+        new_tasks_data = self.get_serializer(captured, many=True).data
+        clear_captured_tasks()
 
         serializer = self.get_serializer(task)
         return Response({
             'message': 'Task completed successfully.',
             'task': serializer.data,
+            'new_tasks': new_tasks_data,
             'workflow_actions': workflow_actions,
             'call_duration_seconds': call_duration if task.task_type == 'call' else None,
         })
@@ -321,8 +338,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         Buckets: overdue, due_today, upcoming, in_progress
         """
         qs = self.get_queryset().filter(
-            task_type='call',
-            assigned_to=request.user
+            task_type='call'
         ).select_related('lead', 'assigned_to').order_by('-updated_at')
 
         now = timezone.now()

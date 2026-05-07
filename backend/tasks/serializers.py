@@ -5,22 +5,34 @@ from .models import Task, ActivityLog
 
 class TaskSerializer(serializers.ModelSerializer):
     lead_name = serializers.CharField(source='lead.name', read_only=True)
+    contact_name = serializers.CharField(source='contact.name', read_only=True)
+    account_name = serializers.CharField(source='account.name', read_only=True)
+    deal_name = serializers.CharField(source='deal.title', read_only=True)
     stage = serializers.CharField(source='lead.status', read_only=True)
     owner = serializers.SerializerMethodField(read_only=True)
     is_overdue = serializers.SerializerMethodField(read_only=True)
+    related_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Task
         fields = [
             'id', 'title', 'task_type', 'description', 'status', 'priority',
             'due_date', 'assigned_to', 'owner', 'lead', 'contact', 'account', 'deal',
-            'lead_name', 'stage', 'current_step', 'steps', 'next_action',
+            'lead_name', 'contact_name', 'account_name', 'deal_name',
+            'related_name', 'stage', 'current_step', 'steps', 'next_action',
             'source_object_id', 'is_active', 'created_at', 'updated_at',
             'call_duration', 'call_outcome', 'meeting_start', 'meeting_end', 'notes',
             # New workflow fields
             'outcome', 'completed_at', 'metadata', 'is_overdue',
         ]
         read_only_fields = ['source_object_id', 'created_at', 'updated_at', 'completed_at']
+
+    def get_related_name(self, obj):
+        if obj.lead: return obj.lead.name
+        if obj.contact: return obj.contact.name
+        if obj.deal: return obj.deal.title
+        if obj.account: return obj.account.name
+        return None
 
     def get_owner(self, obj):
         if obj.assigned_to:

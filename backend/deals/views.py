@@ -1,9 +1,13 @@
+import logging
 from rest_framework import viewsets
 
 from users.permissions import RoleBasedAccessPermission
 
 from .models import Deal, Product
 from .serializers import DealSerializer, ProductSerializer
+
+
+logger = logging.getLogger(__name__)
 
 
 class DealViewSet(viewsets.ModelViewSet):
@@ -44,10 +48,16 @@ class DealViewSet(viewsets.ModelViewSet):
 
             # 1. Prevent Duplicate Active Deals
             if lead and Deal.objects.filter(lead=lead, is_active=True).exists():
-                raise ValidationError({"lead": "An active deal already exists for this lead."})
+                error_msg = "An active deal already exists for this lead."
+                logger.warning(f"[Deals] Validation failed: {error_msg}")
+                raise ValidationError({"lead": error_msg})
             
             # 2. Save the deal (stage defaults to proposal in model)
-            deal = serializer.save(owner=self.request.user)
+            try:
+                deal = serializer.save(owner=self.request.user)
+            except Exception as exc:
+                logger.error(f"[Deals] Save failed: {exc}", exc_info=True)
+                raise
             
             # 3. Clear deal_required flag and timestamp
             if lead:

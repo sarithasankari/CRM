@@ -99,6 +99,10 @@ def task_post_save(sender, instance, created, **kwargs):
 
 def _safe_log(ActivityLog, task, action_type, old_value, new_value, user):
     """Create ActivityLog safely — never raises so signals don't break saves."""
+    from django.contrib.auth.models import AnonymousUser
+    if isinstance(user, AnonymousUser):
+        user = None
+    
     try:
         ActivityLog.objects.create(
             task=task,

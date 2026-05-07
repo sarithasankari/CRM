@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   Plus, Clock, Calendar, AlertCircle, X, 
   Trash2, CheckCircle2, ListTodo, MoreHorizontal,
   ChevronRight, Activity, PhoneCall, Mail, FileText, CheckSquare,
   Settings, Zap, List, LayoutGrid, Check, Play, Edit3,
-  Video, Users, Loader2, Timer, ArrowRight
+  Video, Users, Loader2, Timer, ArrowRight, History
 } from 'lucide-react';
-import { tasksApi, leadsApi, dealsApi } from '../services/api';
+import { tasksApi, leadsApi, dealsApi, meetingsApi } from '../services/api';
 
 import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +14,7 @@ import { useWebSocket } from '../context/WebSocketContext';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import MeetingSchedulerModal from '../components/MeetingSchedulerModal';
 
 dayjs.extend(relativeTime);
 
@@ -66,12 +67,51 @@ export default function Tasks() {
   const [drawerLogs, setDrawerLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false); // For bulk actions/global state
-  const [actionLoadingId, setActionLoadingId] = useState(null); // For individual task actions
+  
+  // Realtime Sync Architecture
+  const [loadingTaskIds, setLoadingTaskIds] = useState(new Set());
+  const pendingSyncRef = useRef(false);
+  const latestFetchRef = useRef(0);
+  const lastProcessedMessageRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, []);
+
+  const addLoadingTask = useCallback((id) => {
+    setLoadingTaskIds(prev => {
+      const next = new Set(prev);
+      next.add(String(id));
+      return next;
+    });
+  }, []);
+
+  const removeLoadingTask = useCallback((id) => {
+    setLoadingTaskIds(prev => {
+      const next = new Set(prev);
+      next.delete(String(id));
+      return next;
+    });
+  }, []);
+
+  const isTaskLoading = useCallback((id) => {
+    return loadingTaskIds.has(String(id));
+  }, [loadingTaskIds]);
 
   // Deal Creation Flow
   const [isDealModalOpen, setIsDealModalOpen] = useState(false);
   const [dealData, setDealData] = useState({ title: '', value: '', expected_close_date: '', lead_id: '' });
   const [isCreatingDeal, setIsCreatingDeal] = useState(false);
+
+  const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
+  const [isSchedulingMeeting, setIsSchedulingMeeting] = useState(false);
+  const [isMeetingOutcomeModalOpen, setIsMeetingOutcomeModalOpen] = useState(false);
 
   
   // Timer for live execution in drawer
@@ -96,24 +136,61 @@ export default function Tasks() {
   const { addToast } = useToast();
   const { lastMessage } = useWebSocket();
 
+  const fetchTasks = useCallback(async (silent = false) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const currentFetchId = ++latestFetchRef.current;
+    if (!silent) setIsLoading(true);
+    try {
+      const data = await tasksApi.getAll({}, { signal: abortController.signal });
+      if (!isMountedRef.current) return;
+      if (currentFetchId === latestFetchRef.current) {
+        setTasks(data.results || data);
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
+      if (!silent) addToast("We couldn't fetch your tasks, sorry about that", "error");
+    } finally {
+      if (isMountedRef.current && currentFetchId === latestFetchRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [addToast]);
+
   // Real-time updates sync
   useEffect(() => {
     if (lastMessage) {
-      fetchTasks(true); // Silent refresh for WebSocket updates
-    }
-  }, [lastMessage]);
+      let msgId;
+      try {
+        const payload = JSON.parse(lastMessage.data);
+        msgId = payload.message_id || payload.id || lastMessage.timeStamp;
+      } catch {
+        msgId = lastMessage.timeStamp;
+      }
 
-  const fetchTasks = async (silent = false) => {
-    if (!silent) setIsLoading(true);
-    try {
-      const data = await tasksApi.getAll();
-      setTasks(data.results || data);
-    } catch (err) {
-      if (!silent) addToast("We couldn't fetch your tasks, sorry about that", "error");
-    } finally {
-      if (!silent) setIsLoading(false);
+      if (msgId && msgId !== lastProcessedMessageRef.current) {
+        lastProcessedMessageRef.current = msgId;
+        // Lock background refreshes during active calls or pending operations
+        if (loadingTaskIds.size > 0 || isProcessing || timerRunning) {
+          pendingSyncRef.current = true;
+        } else {
+          fetchTasks(true);
+        }
+      }
     }
-  };
+  }, [lastMessage, loadingTaskIds.size, isProcessing, fetchTasks]);
+
+  useEffect(() => {
+    if (loadingTaskIds.size === 0 && !isProcessing && !timerRunning && pendingSyncRef.current) {
+      pendingSyncRef.current = false;
+      fetchTasks(true);
+    }
+  }, [loadingTaskIds.size, isProcessing, timerRunning, fetchTasks]);
 
   const handleCreateTask = async (e) => {
     e.preventDefault();
@@ -146,16 +223,22 @@ export default function Tasks() {
   // Sync selectedTask when main tasks list changes (to keep drawer fresh)
   useEffect(() => {
     if (selectedTask) {
-      const updated = tasks.find(t => t.id === selectedTask.id);
-      if (updated && JSON.stringify(updated) !== JSON.stringify(selectedTask)) {
+      const updated = tasks.find(t => String(t.id) === String(selectedTask.id));
+      
+      // Only sync if we're not in the middle of a call to avoid UI resets/jitter
+      if (updated && JSON.stringify(updated) !== JSON.stringify(selectedTask) && !timerRunning) {
         setSelectedTask(updated);
+        // Stop timer if status is no longer in_progress (e.g. updated by another user)
+        if (updated.status !== 'in_progress' && timerRunning) {
+          setTimerRunning(false);
+        }
       }
     }
-  }, [tasks, selectedTask]);
+  }, [tasks, selectedTask, timerRunning]);
 
   const openDrawer = (task) => {
     // Always fetch latest data before opening drawer to avoid stale info
-    const latestTask = tasks.find(t => t.id === task.id) || task;
+    const latestTask = tasks.find(t => String(t.id) === String(task.id)) || task;
     setSelectedTask(latestTask);
     setIsDrawerOpen(true);
     setDrawerLogs([]);
@@ -165,27 +248,31 @@ export default function Tasks() {
   };
 
   const handleStartCall = async (task) => {
-    if (actionLoadingId) return;
-    setActionLoadingId(task.id);
+    const strTaskId = String(task.id);
+    if (isTaskLoading(strTaskId)) return;
+    addLoadingTask(strTaskId);
     
     // Optimistic Update
+    const originalTask = tasks.find(t => String(t.id) === strTaskId);
     const previousTask = { ...task };
     setSelectedTask({ ...task, status: 'in_progress' });
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'in_progress' } : t));
+    setTasks(prev => prev.map(t => String(t.id) === strTaskId ? { ...t, status: 'in_progress' } : t));
 
     try {
       await tasksApi.startCall(task.id);
+      if (!isMountedRef.current) return;
       setTimerRunning(true);
       setElapsed(0);
       addToast(`Call started: ${task.title}`, 'info');
       // No need to fetchTasks here as we updated optimistically
     } catch {
+      if (!isMountedRef.current) return;
       // Rollback
       setSelectedTask(previousTask);
-      setTasks(prev => prev.map(t => t.id === task.id ? previousTask : t));
+      setTasks(prev => prev.map(t => String(t.id) === strTaskId && originalTask ? originalTask : t));
       addToast('Failed to start call', 'error');
     } finally {
-      setActionLoadingId(null);
+      if (isMountedRef.current) removeLoadingTask(strTaskId);
     }
   };
 
@@ -198,23 +285,29 @@ export default function Tasks() {
       const res = await tasksApi.completeTask(task.id, { outcome });
       addToast(`Task completed: ${outcome}`, 'success');
       
-      // Trigger Deal Modal if it's a successful meeting
+      /* 
+      // Manual Deal creation is now handled by backend workflows to ensure consistency
       if (task.task_type === 'meeting' && outcome === 'success' && task.lead) {
-        setDealData({
-          title: `${task.lead_name || 'New'} Deal`,
-          value: '',
-          expected_close_date: dayjs().add(30, 'day').format('YYYY-MM-DD'),
-          lead: task.lead
-        });
         setIsDealModalOpen(true);
       }
+      */
 
 
       if (res.workflow_actions?.length) {
         res.workflow_actions.forEach(a => addToast(`⚡ ${a}`, 'info'));
       }
+
+      // Optimistic update for newly created tasks (instant feedback)
+      if (res.new_tasks && res.new_tasks.length > 0) {
+        setTasks(prev => {
+          const existingIds = new Set(prev.map(t => String(t.id)));
+          const uniqueNew = res.new_tasks.filter(t => !existingIds.has(String(t.id)));
+          return [...uniqueNew, ...prev];
+        });
+      }
+
       setTimerRunning(false);
-      fetchTasks();
+      fetchTasks(true); // Silent fetch to sync with backend
       setIsDrawerOpen(false);
     } catch {
       addToast('Failed to complete task', 'error');
@@ -250,41 +343,86 @@ export default function Tasks() {
     }
   };
 
+  const handleScheduleMeeting = async (meetingData) => {
+    setIsSchedulingMeeting(true);
+    try {
+      // 1. Create a real Meeting record (for the Meetings module)
+      await meetingsApi.create({
+        title: meetingData.title,
+        start_time: meetingData.meeting_start,
+        end_time: meetingData.meeting_end,
+        notes: meetingData.notes,
+        meeting_type: meetingData.metadata.meeting_type === 'discovery' ? 'Video Call' : 'In Person', 
+        object_id: meetingData.lead,
+        participants: [selectedTask.owner || 'Sales Rep', meetingData.title.split(': ').pop() || 'Lead'],
+      });
+
+      // 2. Create the Task record (as a placeholder/reminder)
+      await tasksApi.create(meetingData);
+      
+      // 3. Complete the current Follow-up task
+      if (selectedTask && selectedTask.task_type === 'follow_up') {
+        await tasksApi.completeTask(selectedTask.id, { 
+          outcome: 'success', 
+          notes: `Scheduled ${meetingData.metadata.meeting_type} meeting.` 
+        });
+      }
+      
+      addToast("Meeting scheduled and synced with calendar!", "success");
+      setIsMeetingModalOpen(false);
+      fetchTasks();
+      setIsDrawerOpen(false);
+    } catch (err) {
+      console.error("Meeting creation error:", err);
+      addToast("Failed to schedule meeting", "error");
+    } finally {
+      setIsSchedulingMeeting(false);
+    }
+  };
+
 
 
   const handleStatusChange = async (taskId, newStatus) => {
-    if (actionLoadingId === taskId) return;
+    const strTaskId = String(taskId);
+    if (isTaskLoading(strTaskId)) return;
     
-    const previousTasks = [...tasks];
+    const originalTask = tasks.find(t => String(t.id) === strTaskId);
     const previousSelected = selectedTask ? { ...selectedTask } : null;
     const isActive = newStatus !== 'completed';
 
     // Optimistic UI update
     setTasks(prevTasks => prevTasks.map(t => 
-      t.id.toString() === taskId.toString() 
+      String(t.id) === strTaskId 
         ? { ...t, status: newStatus, is_active: isActive } 
         : t
     ));
     
-    if (selectedTask?.id.toString() === taskId.toString()) {
+    if (selectedTask && String(selectedTask.id) === strTaskId) {
       setSelectedTask(prev => ({ ...prev, status: newStatus, is_active: isActive }));
     }
 
-    setActionLoadingId(taskId);
+    if (newStatus === 'completed' && originalTask && originalTask.task_type === 'meeting') {
+      setIsMeetingOutcomeModalOpen(true);
+      return;
+    }
+
+    addLoadingTask(strTaskId);
     try {
       await tasksApi.patch(taskId, { status: newStatus });
+      if (!isMountedRef.current) return;
       addToast(`Status updated to ${newStatus.replace('_', ' ')}`, "success");
       // Silent fetch to sync any backend-side changes (like automation results)
       fetchTasks(true); 
     } catch (err) {
+      if (!isMountedRef.current) return;
       // Rollback
-      setTasks(previousTasks);
-      if (previousSelected && previousSelected.id.toString() === taskId.toString()) {
+      setTasks(prevTasks => prevTasks.map(t => String(t.id) === strTaskId && originalTask ? originalTask : t));
+      if (previousSelected && String(previousSelected.id) === strTaskId) {
         setSelectedTask(previousSelected);
       }
       addToast("Failed to update status", "error");
     } finally {
-      setActionLoadingId(null);
+      if (isMountedRef.current) removeLoadingTask(strTaskId);
     }
   };
 
@@ -294,14 +432,6 @@ export default function Tasks() {
     
     if (source.droppableId !== destination.droppableId) {
       const newStatus = destination.droppableId;
-      const isActive = newStatus !== 'completed';
-      
-      // Optimistic update
-      setTasks(prev => prev.map(t => 
-        t.id.toString() === draggableId 
-          ? { ...t, status: newStatus, is_active: isActive } 
-          : t
-      ));
       handleStatusChange(draggableId, newStatus);
     }
   };
@@ -318,33 +448,39 @@ export default function Tasks() {
   };
 
   const handleDelete = async (id) => {
-    if (actionLoadingId === id) return;
+    const strId = String(id);
+    if (isTaskLoading(strId)) return;
     if (!window.confirm("Are you sure you'd like to remove this task?")) return;
     
-    const previousTasks = [...tasks];
+    const originalTask = tasks.find(t => String(t.id) === strId);
     // Optimistic removal (safe ID comparison)
-    setTasks(prev => prev.filter(t => t.id.toString() !== id.toString()));
-    if (selectedTask?.id.toString() === id.toString()) setIsDrawerOpen(false);
+    setTasks(prev => prev.filter(t => String(t.id) !== strId));
+    if (selectedTask && String(selectedTask.id) === strId) setIsDrawerOpen(false);
 
-    setActionLoadingId(id);
+    addLoadingTask(strId);
     try {
       await tasksApi.delete(id);
+      if (!isMountedRef.current) return;
       addToast("Task removed successfully", "success");
       // Clean up selection if needed
-      setSelectedTasks(prev => prev.filter(tid => tid !== id));
+      setSelectedTasks(prev => prev.filter(tid => String(tid) !== strId));
     } catch (err) {
+      if (!isMountedRef.current) return;
       // Rollback
-      setTasks(previousTasks);
-      if (selectedTask?.id === id) setIsDrawerOpen(true);
+      if (originalTask) setTasks(prev => [...prev, originalTask]);
+      if (selectedTask && String(selectedTask.id) === strId) setIsDrawerOpen(true);
       addToast("Failed to remove the task", "error");
     } finally {
-      setActionLoadingId(null);
+      if (isMountedRef.current) removeLoadingTask(strId);
     }
   };
 
   const toggleTaskSelection = (taskId) => {
+    const strTaskId = String(taskId);
     setSelectedTasks(prev => 
-      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
+      prev.map(String).includes(strTaskId) 
+        ? prev.filter(id => String(id) !== strTaskId) 
+        : [...prev, strTaskId]
     );
   };
 
@@ -415,30 +551,47 @@ export default function Tasks() {
     }
   };
 
-  const filteredTasks = tasks.filter(task => {
-    if (view === 'Completed Tasks') return task.status === 'completed' || task.is_active === false;
+  const recentlyCompletedTasks = useMemo(() => {
+    const last24h = dayjs().subtract(24, 'hour');
+    return tasks.filter(task => 
+      task.status === 'completed' && 
+      task.completed_at && 
+      dayjs(task.completed_at).isAfter(last24h)
+    ).sort((a, b) => dayjs(b.completed_at).valueOf() - dayjs(a.completed_at).valueOf());
+  }, [tasks]);
 
-    // For all other views:
-    // 1. Hide inactive/completed tasks in List view to keep it clean
-    // 2. SHOW them in Kanban view so the "Completed" column isn't empty
-    if (layout !== 'kanban' && (task.status === 'completed' || task.is_active === false)) return false;
-    
-    if (view === 'My Focus Today') {
-      const isUrgentOrHigh = ['urgent', 'high'].includes(task.priority);
-      const isOverdue = task.due_date && dayjs(task.due_date).isBefore(dayjs(), 'day');
-      const isToday = task.due_date && dayjs(task.due_date).isSame(dayjs(), 'day');
-      // Critical actionable tasks only
-      return isUrgentOrHigh || isOverdue || isToday;
-    }
-    if (view === 'Overdue Tasks') return task.due_date && dayjs(task.due_date).isBefore(dayjs(), 'day');
-    if (view === 'Today Tasks') return task.due_date && dayjs(task.due_date).isSame(dayjs(), 'day');
-    if (view === 'Current Tasks') return true; // Show all active
-    return true;
-  }).sort((a, b) => {
-    if (!a.due_date) return 1;
-    if (!b.due_date) return -1;
-    return dayjs(a.due_date).valueOf() - dayjs(b.due_date).valueOf();
-  });
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(task => {
+      // IMMUNITY: Always show the task if it's currently being worked on by the user
+      // This prevents it from disappearing if assignment changes or filters update during a call
+      const isBeingWorkedOn = (String(task.id) === String(selectedTask?.id) && timerRunning);
+      if (isBeingWorkedOn) return true;
+
+      if (view === 'Recent Activity') return false; // Handled by dedicated section
+      if (view === 'Completed Tasks') return task.status === 'completed' || task.is_active === false;
+
+      // For all other views:
+      // 1. Hide inactive/completed tasks in List view to keep it clean
+      // 2. SHOW them in Kanban view so the "Completed" column isn't empty
+      if (layout !== 'kanban' && (task.status === 'completed' || task.is_active === false)) return false;
+      
+      if (view === 'My Focus Today') {
+        const isUrgentOrHigh = ['urgent', 'high'].includes(task.priority);
+        const isOverdue = task.due_date && dayjs(task.due_date).isBefore(dayjs(), 'day');
+        const isToday = task.due_date && dayjs(task.due_date).isSame(dayjs(), 'day');
+        // Critical actionable tasks only
+        return isUrgentOrHigh || isOverdue || isToday;
+      }
+      if (view === 'Overdue Tasks') return task.due_date && dayjs(task.due_date).isBefore(dayjs(), 'day');
+      if (view === 'Today Tasks') return task.due_date && dayjs(task.due_date).isSame(dayjs(), 'day');
+      if (view === 'Current Tasks') return true; // Show all active
+      return true;
+    }).sort((a, b) => {
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      return dayjs(a.due_date).valueOf() - dayjs(b.due_date).valueOf();
+    });
+  }, [tasks, view, layout]);
 
   const getPriorityBadge = (prio) => {
     switch(prio) {
@@ -457,7 +610,7 @@ export default function Tasks() {
     }
   };
 
-  const views = ['My Focus Today', 'Current Tasks', 'Today Tasks', 'Overdue Tasks', 'Completed Tasks'];
+  const views = ['My Focus Today', 'Current Tasks', 'Today Tasks', 'Overdue Tasks', 'Recent Activity', 'Completed Tasks'];
 
   return (
     <div className="h-full flex bg-slate-50 overflow-hidden font-sans">
@@ -485,6 +638,7 @@ export default function Tasks() {
                     {v === 'Overdue Tasks' && <AlertCircle className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-rose-500'}`} />}
                     {v === 'Today Tasks' && <Calendar className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-amber-500'}`} />}
                     {v === 'Current Tasks' && <ListTodo className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-slate-500'}`} />}
+                    {v === 'Recent Activity' && <History className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-slate-500'}`} />}
                     {v}
                   </span>
                   {view === v && <div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>}
@@ -669,12 +823,12 @@ export default function Tasks() {
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            {task.lead_name ? (
+                            {task.related_name ? (
                               <div className="text-sm text-slate-700 flex items-center">
                                 <div className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-bold mr-2">
-                                  {task.lead_name.charAt(0).toUpperCase()}
+                                  {task.related_name.charAt(0).toUpperCase()}
                                 </div>
-                                {task.lead_name}
+                                {task.related_name}
                               </div>
                             ) : <span className="text-sm text-slate-400">-</span>}
                           </td>
@@ -689,9 +843,9 @@ export default function Tasks() {
                           <td className="px-6 py-4 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                             <select
                               value={task.status}
-                              disabled={actionLoadingId === task.id}
+                              disabled={isTaskLoading(task.id)}
                               onChange={(e) => handleStatusChange(task.id, e.target.value)}
-                              className={`text-xs font-semibold px-2.5 py-1 rounded-full border outline-none cursor-pointer appearance-none transition-opacity ${getStatusColor(task.status)} ${actionLoadingId === task.id ? 'opacity-50 cursor-wait' : ''}`}
+                              className={`text-xs font-semibold px-2.5 py-1 rounded-full border outline-none cursor-pointer appearance-none transition-opacity ${getStatusColor(task.status)} ${isTaskLoading(task.id) ? 'opacity-50 cursor-wait' : ''}`}
                             >
                               <option value="not_started">Not Started</option>
                               <option value="in_progress">In Progress</option>
@@ -772,12 +926,12 @@ export default function Tasks() {
                                     </span>
                                   )}
                                   
-                                  {task.lead_name && (
+                                  {task.related_name && (
                                     <div className="flex items-center text-xs text-slate-600 mb-3 bg-slate-50 p-1.5 rounded border border-slate-100">
                                       <div className="w-4 h-4 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold mr-1.5 text-[8px]">
-                                        {task.lead_name.charAt(0).toUpperCase()}
+                                        {task.related_name.charAt(0).toUpperCase()}
                                       </div>
-                                      <span className="truncate">{task.lead_name}</span>
+                                      <span className="truncate">{task.related_name}</span>
                                     </div>
                                   )}
                                   
@@ -805,6 +959,48 @@ export default function Tasks() {
               </DragDropContext>
             </div>
           )}
+
+          {/* Recently Completed Section (Last 24h) */}
+          {(view === 'Current Tasks' || view === 'Recent Activity' || view === 'My Focus Today') && recentlyCompletedTasks.length > 0 && (
+            <div className="p-8 border-t border-slate-200 bg-slate-50/30">
+              <div className="flex items-center space-x-2 mb-6">
+                <div className="p-1.5 bg-emerald-100 rounded-lg">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                </div>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest italic">Recently Completed (Last 24h)</h3>
+              </div>
+              
+              <div className="space-y-3">
+                {recentlyCompletedTasks.map(task => (
+                  <div 
+                    key={`recent-${task.id}`}
+                    onClick={() => openDrawer(task)}
+                    className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group hover:border-emerald-200 transition-all cursor-pointer opacity-80 hover:opacity-100"
+                  >
+                    <div className="flex items-center space-x-4 min-w-0">
+                      <div className="flex-shrink-0 p-2 bg-slate-50 rounded-xl group-hover:bg-emerald-50 transition-colors">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 group-hover:text-emerald-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-bold text-slate-500 line-through truncate group-hover:text-slate-700 transition-colors">{task.title}</h4>
+                        <div className="flex items-center space-x-2 mt-0.5">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{task.related_name}</span>
+                          <span className="text-slate-300">•</span>
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded uppercase tracking-tight border border-emerald-100">
+                            {task.outcome?.replace('_', ' ') || 'Finished'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Completed</p>
+                      <p className="text-[11px] font-bold text-slate-400">{dayjs(task.completed_at).fromNow()}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -815,11 +1011,11 @@ export default function Tasks() {
             <div className="flex items-center space-x-2 flex-1 min-w-0">
               <button 
                 onClick={() => handleStatusChange(selectedTask.id, selectedTask.status === 'completed' ? 'in_progress' : 'completed')}
-                disabled={actionLoadingId === selectedTask.id}
-                className={`flex-shrink-0 p-1.5 rounded-md transition-all ${selectedTask.status === 'completed' ? 'text-emerald-600 bg-emerald-100' : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600'} ${actionLoadingId === selectedTask.id ? 'opacity-50 animate-pulse' : ''}`}
+                disabled={isTaskLoading(selectedTask.id)}
+                className={`flex-shrink-0 p-1.5 rounded-md transition-all ${selectedTask.status === 'completed' ? 'text-emerald-600 bg-emerald-100' : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600'} ${isTaskLoading(selectedTask.id) ? 'opacity-50 animate-pulse' : ''}`}
                 title="Mark Complete"
               >
-                {actionLoadingId === selectedTask.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                {isTaskLoading(selectedTask.id) ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
               </button>
               <h3 className="text-lg font-semibold text-slate-900 truncate pr-4">{selectedTask.title}</h3>
             </div>
@@ -831,7 +1027,7 @@ export default function Tasks() {
             <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
               <button 
                 onClick={() => handleDelete(selectedTask.id)} 
-                disabled={actionLoadingId === selectedTask.id}
+                disabled={isTaskLoading(selectedTask.id)}
                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors disabled:opacity-30"
               >
                 <Trash2 className="w-5 h-5" />
@@ -845,37 +1041,54 @@ export default function Tasks() {
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {/* Progress Tracker / Stepper UI */}
-            {selectedTask.steps && selectedTask.steps.list && selectedTask.steps.list.length > 0 && (
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center">
-                    <Activity className="w-4 h-4 mr-1.5 text-blue-500" /> Workflow Progress
-                  </p>
-                  {selectedTask.next_action && (
-                    <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold border border-amber-200">
-                      Next: {selectedTask.next_action}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center justify-between relative px-2">
-                  <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-0.5 bg-slate-100 -z-10"></div>
-                  {selectedTask.steps.list.map((step, index) => {
-                    const isCompleted = step.status === 'completed';
-                    const isInProgress = step.status === 'in_progress';
-                    return (
-                      <div key={index} className="flex flex-col items-center relative z-10 w-16">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center border-2 mb-2 bg-white ${isCompleted ? 'border-emerald-500 text-emerald-500' : isInProgress ? 'border-blue-500 text-blue-500 shadow-sm' : 'border-slate-200 text-slate-300'}`}>
-                          {isCompleted ? <Check className="w-4 h-4" /> : <span className="text-[10px] font-bold">{index + 1}</span>}
-                        </div>
-                        <span className={`text-[9px] font-bold text-center leading-tight ${isCompleted ? 'text-emerald-700' : isInProgress ? 'text-blue-700' : 'text-slate-400'}`}>
-                          {step.name}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center">
+                  <Activity className="w-4 h-4 mr-1.5 text-blue-500" /> Sales Lifecycle
+                </p>
+                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold border border-blue-200 uppercase tracking-tight">
+                  {selectedTask.stage || selectedTask.lead_status || 'In Progress'}
+                </span>
               </div>
-            )}
+              <div className="flex items-center justify-between relative px-2">
+                <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-0.5 bg-slate-100 -z-10"></div>
+                {[
+                  { name: 'Lead', status: 'new' },
+                  { name: 'Contacted', status: 'contacted' },
+                  { name: 'Follow-up', status: 'follow_up' },
+                  { name: 'Meeting', status: 'meeting' },
+                  { name: 'Qualified', status: 'qualified' },
+                  { name: 'Proposal', status: 'proposal' },
+                  { name: 'Closed', status: 'won' },
+                ].map((step, index) => {
+                  const leadStatus = selectedTask.lead_status || 'new';
+                  const taskType = selectedTask.task_type;
+                  
+                  // Logic to determine if a step is completed, current, or pending
+                  const stepOrder = ['new', 'contacted', 'follow_up', 'meeting', 'qualified', 'proposal', 'won', 'lost'];
+                  const currentIdx = stepOrder.indexOf(leadStatus);
+                  const stepIdx = stepOrder.indexOf(step.status);
+                  
+                  let state = 'pending';
+                  if (stepIdx < currentIdx) state = 'completed';
+                  else if (stepIdx === currentIdx || (step.status === 'follow_up' && taskType === 'follow_up') || (step.status === 'meeting' && taskType === 'meeting')) {
+                    state = 'current';
+                  }
+
+                  return (
+                    <div key={index} className="flex flex-col items-center relative z-10">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 mb-1.5 bg-white transition-all ${state === 'completed' ? 'border-emerald-500 text-emerald-500 bg-emerald-50' : state === 'current' ? 'border-blue-600 text-blue-600 shadow-md scale-110' : 'border-slate-200 text-slate-300'}`}>
+                        {state === 'completed' ? <Check className="w-3.5 h-3.5" /> : <span className="text-[9px] font-black">{index + 1}</span>}
+                      </div>
+                      <span className={`text-[8px] font-black text-center whitespace-nowrap uppercase tracking-tighter ${state === 'completed' ? 'text-emerald-700' : state === 'current' ? 'text-blue-700' : 'text-slate-400'}`}>
+                        {step.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
 
             {/* Execution Controls */}
             {selectedTask.status !== 'completed' && (
@@ -891,15 +1104,73 @@ export default function Tasks() {
                   </button>
                 )}
 
-                {(timerRunning || selectedTask.status === 'in_progress' || selectedTask.task_type !== 'call') && (
+                {selectedTask.task_type === 'follow_up' && (
+                  <div className="space-y-4">
+                    <button 
+                      onClick={() => setIsMeetingModalOpen(true)}
+                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-600/20"
+                    >
+                      <Calendar className="w-4 h-4" /> Schedule Meeting
+                    </button>
+                    
+                    <button 
+                      onClick={() => handleCompleteWithOutcome(selectedTask, 'success')}
+                      className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-white/5 transition-all"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Quick Complete (Interested)
+                    </button>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <button 
+                        onClick={() => handleCompleteWithOutcome(selectedTask, 'success')}
+                        className="py-3 px-4 bg-white/10 hover:bg-white/20 rounded-xl text-left transition-all border border-white/5 group"
+                      >
+                        <span className="text-xs font-bold flex items-center gap-2">
+                          📝 Send Proposal
+                        </span>
+                        <span className="text-[9px] text-slate-400 mt-1 font-medium">→ Mark Qualified</span>
+                      </button>
+                      <button 
+                        onClick={() => handleCompleteWithOutcome(selectedTask, 'no_response')}
+                        className="py-3 px-4 bg-white/10 hover:bg-white/20 rounded-xl text-left transition-all border border-white/5 group"
+                      >
+                        <span className="text-xs font-bold flex items-center gap-2">
+                          ⏳ Callback Later
+                        </span>
+                        <span className="text-[9px] text-slate-400 mt-1 font-medium">→ Create Reminder</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {selectedTask.task_type === 'meeting' && (
+                  <div className="space-y-4">
+                    <button 
+                      onClick={() => setIsMeetingOutcomeModalOpen(true)}
+                      className="w-full py-4 bg-blue-600 hover:bg-blue-700 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/20"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Complete Meeting Protocol
+                    </button>
+                    <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">
+                         Identity Sync & Lead Propagation 
+                      </p>
+                      <p className="text-[8px] text-slate-500 text-center mt-1">
+                        Completion triggers automated proposal generation
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {(timerRunning || (selectedTask.status === 'in_progress' && selectedTask.task_type === 'call')) && (
                   <div className="space-y-3">
                     <p className="text-xs font-bold text-slate-300">Record Outcome:</p>
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { val: 'interested',    label: 'Interested', icon: '🟢', nextAction: 'Schedule Meeting' },
-                        { val: 'no_response',   label: 'No Answer',  icon: '🟡', nextAction: 'Retry Call Tomorrow' },
-                        { val: 'success',       label: 'Success',    icon: '✅', nextAction: 'Create Proposal' },
-                        { val: 'failed',        label: 'Failed',     icon: '❌', nextAction: 'Log Failure' },
+                        { val: 'follow_up',     label: 'Connected',    icon: '✅', nextAction: 'Require Follow-up' },
+                        { val: 'no_response',   label: 'No Answer',    icon: '🟡', nextAction: 'Retry Tomorrow' },
+                        { val: 'not_interested',label: 'Not Interested',icon: '❌', nextAction: 'Mark Lost' },
+                        { val: 'interested',    label: 'Call Later',   icon: '📞', nextAction: 'Manual Sync' },
                       ].map(opt => (
                         <button 
                           key={opt.val}
@@ -916,12 +1187,12 @@ export default function Tasks() {
                           </span>
                         </button>
                       ))}
-
                     </div>
                   </div>
                 )}
               </div>
             )}
+
 
             {/* Meta info grid */}
             <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-100">
@@ -961,20 +1232,23 @@ export default function Tasks() {
               </div>
             </div>
 
-            {selectedTask.lead_name && (
+            {selectedTask.related_name && (
               <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Related To (Lead)</p>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Related To ({selectedTask.lead ? 'Lead' : selectedTask.contact ? 'Contact' : 'Account'})</p>
                 <div 
-                  onClick={() => selectedTask.lead && navigate(`/leads?id=${selectedTask.lead}`)}
+                  onClick={() => {
+                    if (selectedTask.lead) navigate(`/leads?id=${selectedTask.lead}`);
+                    else if (selectedTask.contact) navigate(`/contacts?id=${selectedTask.contact}`);
+                  }}
                   className="flex items-center justify-between bg-indigo-50 border border-indigo-100 p-3 rounded-lg cursor-pointer hover:bg-indigo-100 transition-all group"
                 >
                   <div className="flex items-center">
                     <div className="w-8 h-8 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center font-bold mr-3 group-hover:scale-110 transition-transform">
-                      {selectedTask.lead_name.charAt(0).toUpperCase()}
+                      {selectedTask.related_name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-indigo-900 group-hover:text-blue-700">{selectedTask.lead_name}</p>
-                      <p className="text-xs text-indigo-700/70 capitalize">{selectedTask.stage || 'Lead'}</p>
+                      <p className="text-sm font-semibold text-indigo-900 group-hover:text-blue-700">{selectedTask.related_name}</p>
+                      <p className="text-xs text-indigo-700/70 capitalize">{selectedTask.stage || 'Connected Entity'}</p>
                     </div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-indigo-400 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
@@ -995,41 +1269,62 @@ export default function Tasks() {
             )}
 
             {/* Real Activity Log */}
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center">
-                <Activity className="w-4 h-4 mr-2" /> Activity History
-              </p>
-              {logsLoading ? (
-                <div className="flex items-center gap-2 text-slate-400 text-sm">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Loading history…
-                </div>
-              ) : drawerLogs.length === 0 ? (
-                <p className="text-sm text-slate-400 italic">No activity recorded yet.</p>
-              ) : (
-                <div className="space-y-3 pl-2 border-l-2 border-slate-100 ml-2">
-                  {drawerLogs.map((log, i) => (
-                    <div key={i} className="relative pl-4">
-                      <div className={`absolute -left-[21px] w-2.5 h-2.5 rounded-full border-4 border-white top-1 ${LOG_COLORS[log.action_type] || 'bg-slate-400'}`} />
-                      <p className="text-sm font-medium text-slate-800 capitalize">
-                        {log.action_type.replace(/_/g, ' ')}
-                        {log.new_value?.status && (
-                          <span className="ml-1 text-blue-600">→ {log.new_value.status.replace(/_/g,' ')}</span>
-                        )}
-                        {log.new_value?.outcome && (
-                          <span className="ml-1 text-emerald-600">({log.new_value.outcome.replace(/_/g,' ')})</span>
-                        )}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {log.user_name || 'System'} · {dayjs(log.timestamp).fromNow()}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="pt-6 border-t border-slate-100">
+              <div className="space-y-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                  <ListTodo className="w-3 h-3" /> Audit Timeline
+                </p>
+                
+                {logsLoading ? (
+                  <div className="flex items-center gap-2 text-slate-400 text-sm py-8 justify-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Loading history…
+                  </div>
+                ) : drawerLogs.length === 0 ? (
+                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-8 text-center">
+                    <p className="text-sm text-slate-400 italic">No history available for this task.</p>
+                  </div>
+                ) : (
+                  <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
+                    {drawerLogs.map((log, index) => (
+                      <div key={log.id || index} className="relative group">
+                        <div className={`absolute -left-[22px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white ring-4 ring-white z-10 transition-transform group-hover:scale-125 ${LOG_COLORS[log.action_type] || 'bg-slate-300'}`}></div>
+                        
+                        <div className="bg-white rounded-lg p-3 border border-slate-100 shadow-sm group-hover:border-blue-200 group-hover:shadow-md transition-all">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-[10px] font-black uppercase tracking-tighter text-slate-400">
+                              {(log.action_type || 'Update').replace(/_/g, ' ')}
+                            </p>
+                            <p className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">
+                              {dayjs(log.timestamp).fromNow()}
+                            </p>
+                          </div>
+                          <div className="text-xs text-slate-700 leading-relaxed font-medium">
+                            {log.notes ? log.notes.split('— outcome:').map((part, i) => 
+                              i === 1 ? <span key={i} className="ml-1 px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded font-bold uppercase text-[9px] border border-blue-100">{part}</span> : part
+                            ) : (
+                              <span className="italic text-slate-400">Activity logged without notes</span>
+                            )}
+                            {log.new_value?.status && (
+                              <span className="ml-2 px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded font-bold uppercase text-[8px] border border-amber-100">→ {log.new_value.status.replace(/_/g, ' ')}</span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <div className="w-4 h-4 rounded-full bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 border border-slate-200">
+                              {(log.user_name || 'S').charAt(0)}
+                            </div>
+                            <p className="text-[10px] text-slate-500 font-semibold">{log.user_name || 'System Auto-pilot'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
+
 
       {/* Automation Rules Modal */}
       {isAutomationModalOpen && (
@@ -1284,8 +1579,64 @@ export default function Tasks() {
         </div>
       )}
 
-
-
+      {/* Meeting Scheduler Modal */}
+      {isMeetingModalOpen && (
+        <MeetingSchedulerModal
+          isOpen={isMeetingModalOpen}
+          onClose={() => setIsMeetingModalOpen(false)}
+          onSchedule={handleScheduleMeeting}
+          leadName={selectedTask?.lead_name || 'Prospect'}
+          leadId={selectedTask?.lead}
+          isSubmitting={isSchedulingMeeting}
+        />
+      )}      {/* Meeting Outcome Modal */}
+      {isMeetingOutcomeModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md animate-fade-in" onClick={() => setIsMeetingOutcomeModalOpen(false)} />
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Meeting Outcome</h3>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">Lifecycle Propagation Sync</p>
+              </div>
+              <button onClick={() => setIsMeetingOutcomeModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white text-slate-400 hover:text-rose-500 transition-all shadow-sm">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-3">
+              {[
+                { val: 'success',           label: 'Interested',       icon: '💎', color: 'blue',   desc: 'Qualified lead & prepare proposal' },
+                { val: 'success',           label: 'Proposal Required',icon: '📝', color: 'emerald',desc: 'Triggers proposal generation' },
+                { val: 'interested',        label: 'Follow-up Needed', icon: '⏳', color: 'amber',  desc: 'Creates a new follow-up task' },
+                { val: 'not_interested',    label: 'Not Interested',   icon: '❌', color: 'rose',   desc: 'Marks lead as Lost' },
+              ].map(opt => (
+                <button 
+                  key={opt.label}
+                  onClick={() => {
+                    handleCompleteWithOutcome(selectedTask, opt.val);
+                    setIsMeetingOutcomeModalOpen(false);
+                  }}
+                  className={`w-full p-4 rounded-2xl border-2 border-slate-50 hover:border-slate-200 hover:bg-slate-50 transition-all text-left flex items-start gap-4 group`}
+                >
+                  <div className={`w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-lg shadow-sm border border-slate-200 group-hover:scale-110 transition-transform`}>
+                    {opt.icon}
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-slate-900">{opt.label}</p>
+                    <p className="text-[10px] font-medium text-slate-500 mt-0.5 uppercase tracking-tighter">{opt.desc}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 ml-auto self-center text-slate-300 group-hover:translate-x-1 transition-all" />
+                </button>
+              ))}
+            </div>
+            
+            <div className="px-8 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-center">
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Select outcome to proceed</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

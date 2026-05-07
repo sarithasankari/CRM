@@ -12,6 +12,7 @@ High-level orchestration for complex CRM workflows:
 
 from django.db import transaction
 from django.utils import timezone
+from datetime import timedelta
 
 
 def convert_lead(lead, owner=None, create_deal=True, deal_data=None):

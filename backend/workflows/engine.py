@@ -288,10 +288,13 @@ def apply_operator(operator, value, expected):
         return str(value).startswith(str(expected))
     if operator == 'ends_with':
         return str(value).endswith(str(expected))
-    if operator == 'is_empty':
-        return value in (None, '', [], {})
-    if operator == 'is_not_empty':
-        return value not in (None, '', [], {})
+    if operator == 'in':
+        # Match if value is in a comma-separated list of expected values
+        expected_list = [v.strip().lower() for v in str(expected).split(',')]
+        return str(value).lower() in expected_list
+    if operator == 'not_in':
+        expected_list = [v.strip().lower() for v in str(expected).split(',')]
+        return str(value).lower() not in expected_list
     return False
 def _resolve_field(instance, field_path):
     """
@@ -416,6 +419,20 @@ def execute_workflow_rules(task, chain_id=None):
                                 task.lead.save()
                                 action_message = f"Updated lead {task.lead.id}"
                                 
+                        elif action_type == 'convert_lead':
+                            if task.lead:
+                                from workflows.services import convert_lead
+                                result = convert_lead(
+                                    task.lead,
+                                    owner=task.assigned_to,
+                                    create_deal=action_cfg.get('create_deal', True),
+                                    deal_data={
+                                        'stage': action_cfg.get('deal_stage', 'qualification'),
+                                        'title': action_cfg.get('deal_title', '').replace('{company}', task.lead.company or '').replace('{name}', task.lead.name or '')
+                                    }
+                                )
+                                action_message = f"Converted lead {task.lead.id} to contact {result['contact'].id}"
+
                         elif action_type == 'create_task':
                             target_type = action_cfg.get('task_type', 'todo')
                             target_title = action_cfg.get('title') or f"Follow-up: {task.title}"

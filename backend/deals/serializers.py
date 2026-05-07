@@ -29,8 +29,14 @@ class DealSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Deal
-        fields = '__all__'
-        read_only_fields = ['owner', 'created_at', 'is_active', 'closed_at']
+        fields = [
+            'id', 'lead', 'account', 'value', 'is_active', 'status', 
+            'created_at', 'updated_at', 'closed_at', 'title', 'stage', 
+            'expected_close_date', 'notes', 'owner', 'contact',
+            'owner_username', 'owner_full_name', 'contact_name', 
+            'company_name', 'probability'
+        ]
+        read_only_fields = ['owner', 'created_at', 'is_active', 'closed_at', 'probability']
         extra_kwargs = {
             'value': {'required': True, 'allow_null': False},
             'expected_close_date': {'required': True, 'allow_null': False},

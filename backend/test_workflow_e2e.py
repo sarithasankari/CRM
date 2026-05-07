@@ -424,6 +424,50 @@ if new_lead_id:
         ok("status_changed event fired (Celery worker needed for task execution)")
 
 # ===========================================================================
+# STEP 7.5 - Human-Centric Workflow Validation
+# ===========================================================================
+section("Step 7.5 - Human-Centric Workflow Validation (Manual Follow-up)")
+
+# 1. Create a fresh lead
+test_lead_r = requests.post(f"{BASE}/leads/", headers=HDR, json={
+    "name": "Manual Flow Lead",
+    "email": f"manual_{int(time.time())}@test.com",
+    "source": "Website",
+    "status": "new"
+}, timeout=8)
+if test_lead_r.ok:
+    m_lead_id = test_lead_r.json()["id"]
+    time.sleep(1) # Wait for auto call task
+    
+    # 2. Find the auto-created call task
+    tasks_r = requests.get(f"{BASE}/tasks/?lead={m_lead_id}&task_type=call", headers=HDR)
+    tasks = tasks_r.json().get("results", [])
+    if tasks:
+        call_task_id = tasks[0]["id"]
+        check("Initial Call Task auto-created", True)
+        
+        # 3. Complete call task with 'success' (Connected)
+        requests.post(f"{BASE}/tasks/{call_task_id}/complete_task/", headers=HDR, json={
+            "outcome": "success",
+            "notes": "Connected with prospect."
+        }, timeout=8)
+        time.sleep(1) # Wait for follow-up task
+        
+        # 4. Verify Follow-up Required task exists
+        fu_tasks_r = requests.get(f"{BASE}/tasks/?lead={m_lead_id}&task_type=follow_up", headers=HDR)
+        fu_tasks = fu_tasks_r.json().get("results", [])
+        check("Follow-up Required task created after connected call", len(fu_tasks) > 0)
+        if fu_tasks:
+            check("   -> Title matches expected", fu_tasks[0]["title"] == "Follow-up Required")
+            
+        # 5. Verify NO meeting task exists yet (should be manual)
+        mt_tasks_r = requests.get(f"{BASE}/tasks/?lead={m_lead_id}&task_type=meeting", headers=HDR)
+        mt_tasks = mt_tasks_r.json().get("results", [])
+        check("No automatic meeting task created (Human control active)", len(mt_tasks) == 0)
+    else:
+        fail("Initial Call Task NOT created for Manual Flow Lead")
+
+# ===========================================================================
 # STEP 8 - Workflow Logs
 # ===========================================================================
 section("Step 8 - Workflow Logs")

@@ -47,7 +47,12 @@ class Meeting(models.Model):
     end_time = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=MEETING_STATUS_CHOICES, default='scheduled')
     meeting_type = models.CharField(max_length=50)  # e.g. "Video Call"
+    participants = models.JSONField(default=list, blank=True)
     notes = models.TextField(blank=True, null=True)
+
+    @property
+    def type(self):
+        return self.meeting_type
     
     # Traceability
     created_from_task = models.ForeignKey('tasks.Task', on_delete=models.SET_NULL, null=True, blank=True, related_name='generated_meetings')
