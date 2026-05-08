@@ -106,6 +106,7 @@ def capture_previous_values(sender, instance, **kwargs):
         return
 
     if tracked:
+        logger.info(f"[WorkflowSignals] Captured values for {module}:{instance.pk}: {tracked}")
         setattr(_state, _state_key(sender, instance.pk), tracked)
 
 
@@ -130,6 +131,7 @@ def emit_workflow_events(sender, instance, created, **kwargs):
 
         # Trigger on_create event
         if created:
+            logger.info(f"[WorkflowSignals] Detected create for {module}:{instance.pk}")
             dispatch_event(module, 'on_create', instance, parent_chain_id=parent_chain_id)
             return
 
@@ -142,6 +144,7 @@ def emit_workflow_events(sender, instance, created, **kwargs):
             old_val = previous.get(f'old_{stage_field}')
             new_val = previous.get(f'new_{stage_field}')
             if old_val != new_val:
+                logger.info(f"[WorkflowSignals] Detected stage change for {module}:{instance.pk} from {old_val} to {new_val}")
                 dispatch_event(
                     module,
                     'stage_change',
@@ -161,6 +164,7 @@ def emit_workflow_events(sender, instance, created, **kwargs):
             new_status = previous.get(f'new_{status_field}', '')
             
             if old_status not in COMPLETION_STATUSES and new_status in COMPLETION_STATUSES:
+                logger.info(f"[WorkflowSignals] Detected task completion for {module}:{instance.pk}")
                 dispatch_event(module, 'on_task_complete', instance, previous, parent_chain_id=parent_chain_id)
                 
                 # Chain to next workflow (task-driven automation)
@@ -213,6 +217,7 @@ def _trigger_dependent_workflows(instance, previous, parent_chain_id=None):
     
     if linked_record:
         # Trigger workflows on the linked record with on_task_complete trigger
+        logger.info(f"[WorkflowSignals] Chaining task completion to linked {linked_module}:{linked_record.pk}")
         dispatch_event(
             linked_module,
             'on_task_complete',

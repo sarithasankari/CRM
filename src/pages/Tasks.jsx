@@ -11,6 +11,7 @@ import { tasksApi, leadsApi, dealsApi, meetingsApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../context/WebSocketContext';
+import { useAuth } from '../context/AuthContext';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -57,6 +58,7 @@ export default function Tasks() {
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState('Current Tasks');
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [isAutomationModalOpen, setIsAutomationModalOpen] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState([]);
   const [layout, setLayout] = useState('list');
@@ -108,10 +110,15 @@ export default function Tasks() {
   const [isDealModalOpen, setIsDealModalOpen] = useState(false);
   const [dealData, setDealData] = useState({ title: '', value: '', expected_close_date: '', lead_id: '' });
   const [isCreatingDeal, setIsCreatingDeal] = useState(false);
+  const [projectRequirement, setProjectRequirement] = useState('');
+  const [timeline, setTimeline] = useState('');
+  const [techStack, setTechStack] = useState('');
+  const [dealNotes, setDealNotes] = useState('');
 
   const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
   const [isSchedulingMeeting, setIsSchedulingMeeting] = useState(false);
   const [isMeetingOutcomeModalOpen, setIsMeetingOutcomeModalOpen] = useState(false);
+  const [isProposalOutcomeModalOpen, setIsProposalOutcomeModalOpen] = useState(false);
 
   
   // Timer for live execution in drawer
@@ -149,7 +156,16 @@ export default function Tasks() {
       const data = await tasksApi.getAll({}, { signal: abortController.signal });
       if (!isMountedRef.current) return;
       if (currentFetchId === latestFetchRef.current) {
-        setTasks(data.results || data);
+        const rawTasks = data.results || data;
+        const uniqueTasks = [];
+        const seenIds = new Set();
+        for (const t of rawTasks) {
+          if (!seenIds.has(t.id)) {
+            seenIds.add(t.id);
+            uniqueTasks.push(t);
+          }
+        }
+        setTasks(uniqueTasks);
       }
     } catch (err) {
       if (!isMountedRef.current) return;
@@ -285,13 +301,16 @@ export default function Tasks() {
       const res = await tasksApi.completeTask(task.id, { outcome });
       addToast(`Task completed: ${outcome}`, 'success');
       
-      /* 
-      // Manual Deal creation is now handled by backend workflows to ensure consistency
+      // Open Deal Modal for successful meetings
       if (task.task_type === 'meeting' && outcome === 'success' && task.lead) {
+        setDealData({
+          title: `${task.lead_name || 'Prospect'} Deal`,
+          value: '',
+          expected_close_date: '',
+          lead: task.lead
+        });
         setIsDealModalOpen(true);
       }
-      */
-
 
       if (res.workflow_actions?.length) {
         res.workflow_actions.forEach(a => addToast(`⚡ ${a}`, 'info'));
@@ -330,10 +349,23 @@ export default function Tasks() {
         expected_close_date: dealData.expected_close_date,
         lead: dealData.lead,
         stage: 'Qualification',
+        notes: `Project Requirement: ${projectRequirement}\nTimeline: ${timeline}\nTech Stack: ${techStack}\nNotes: ${dealNotes}`
       };
+      
       // We'll use dealsApi.create to create the deal after meeting.
-      await dealsApi.create(payload); 
+      const createdDeal = await dealsApi.create(payload); 
       addToast("Deal created successfully!", "success");
+      
+      // Create Proposal Task by repurposing current task and linking the deal
+      await tasksApi.update(selectedTask.id, {
+        task_type: 'proposal',
+        status: 'pending',
+        title: 'Send Proposal: ' + (selectedTask.lead_name || 'Prospect'),
+        description: 'Prepare and send proposal for the created deal.',
+        deal: createdDeal.id
+      });
+      addToast("Proposal Task Created!", "success");
+      
       setIsDealModalOpen(false);
       fetchTasks();
     } catch (err) {
@@ -582,6 +614,8 @@ export default function Tasks() {
         // Critical actionable tasks only
         return isUrgentOrHigh || isOverdue || isToday;
       }
+      if (view === 'My Tasks') return task.assigned_to === user?.id;
+      if (view === 'Active Calls') return task.task_type === 'call' && task.status === 'in_progress';
       if (view === 'Overdue Tasks') return task.due_date && dayjs(task.due_date).isBefore(dayjs(), 'day');
       if (view === 'Today Tasks') return task.due_date && dayjs(task.due_date).isSame(dayjs(), 'day');
       if (view === 'Current Tasks') return true; // Show all active
@@ -610,7 +644,7 @@ export default function Tasks() {
     }
   };
 
-  const views = ['My Focus Today', 'Current Tasks', 'Today Tasks', 'Overdue Tasks', 'Recent Activity', 'Completed Tasks'];
+  const views = ['My Focus Today', 'My Tasks', 'Active Calls', 'Current Tasks', 'Today Tasks', 'Overdue Tasks', 'Recent Activity', 'Completed Tasks'];
 
   return (
     <div className="h-full flex bg-slate-50 overflow-hidden font-sans">
@@ -635,6 +669,8 @@ export default function Tasks() {
                 >
                   <span className="flex items-center">
                     {v === 'My Focus Today' && <Zap className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-purple-500'}`} />}
+                    {v === 'My Tasks' && <Users className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-indigo-500'}`} />}
+                    {v === 'Active Calls' && <PhoneCall className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-emerald-500'}`} />}
                     {v === 'Overdue Tasks' && <AlertCircle className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-rose-500'}`} />}
                     {v === 'Today Tasks' && <Calendar className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-amber-500'}`} />}
                     {v === 'Current Tasks' && <ListTodo className={`w-4 h-4 mr-2 ${view === v ? 'text-blue-600' : 'text-slate-500'}`} />}
@@ -788,14 +824,14 @@ export default function Tasks() {
                       return (
                         <tr 
                           key={task.id} 
-                          className={`hover:bg-blue-50/50 transition-colors cursor-pointer group ${selectedTasks.includes(task.id) ? 'bg-blue-50/50' : ''}`}
+                          className={`hover:bg-blue-50/50 transition-colors cursor-pointer group ${selectedTasks.includes(String(task.id)) ? 'bg-blue-50/50' : ''}`}
                           onClick={() => { setSelectedTask(task); setIsDrawerOpen(true); }}
                         >
                           <td className="px-6 py-4 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                             <input 
                               type="checkbox" 
                               className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                              checked={selectedTasks.includes(task.id)}
+                              checked={selectedTasks.includes(String(task.id))}
                               onChange={() => toggleTaskSelection(task.id)}
                             />
                           </td>
@@ -1010,7 +1046,15 @@ export default function Tasks() {
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 backdrop-blur">
             <div className="flex items-center space-x-2 flex-1 min-w-0">
               <button 
-                onClick={() => handleStatusChange(selectedTask.id, selectedTask.status === 'completed' ? 'in_progress' : 'completed')}
+                onClick={() => {
+                  if (selectedTask.task_type === 'meeting' && selectedTask.status !== 'completed') {
+                    setIsMeetingOutcomeModalOpen(true);
+                  } else if (selectedTask.task_type === 'proposal' && selectedTask.status !== 'completed') {
+                    setIsProposalOutcomeModalOpen(true);
+                  } else {
+                    handleStatusChange(selectedTask.id, selectedTask.status === 'completed' ? 'in_progress' : 'completed');
+                  }
+                }}
                 disabled={isTaskLoading(selectedTask.id)}
                 className={`flex-shrink-0 p-1.5 rounded-md transition-all ${selectedTask.status === 'completed' ? 'text-emerald-600 bg-emerald-100' : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600'} ${isTaskLoading(selectedTask.id) ? 'opacity-50 animate-pulse' : ''}`}
                 title="Mark Complete"
@@ -1147,9 +1191,9 @@ export default function Tasks() {
                   <div className="space-y-4">
                     <button 
                       onClick={() => setIsMeetingOutcomeModalOpen(true)}
-                      className="w-full py-4 bg-blue-600 hover:bg-blue-700 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/20"
+                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-600/20"
                     >
-                      <CheckCircle2 className="w-4 h-4" /> Complete Meeting Protocol
+                      <CheckCircle2 className="w-4 h-4" /> Complete Meeting
                     </button>
                     <div className="bg-white/5 p-3 rounded-xl border border-white/10">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">
@@ -1159,6 +1203,36 @@ export default function Tasks() {
                         Completion triggers automated proposal generation
                       </p>
                     </div>
+                  </div>
+                )}
+
+                {selectedTask.task_type === 'proposal' && (
+                  <div className="space-y-4 mb-4">
+                    <button 
+                      onClick={() => setIsProposalOutcomeModalOpen(true)}
+                      className="w-full py-4 bg-blue-600 hover:bg-blue-700 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/20"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Complete Proposal Task
+                    </button>
+                    <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">
+                         Deal Lifecycle Progression 
+                      </p>
+                      <p className="text-[8px] text-slate-500 text-center mt-1">
+                        Completion updates deal stage and creates follow-up
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {!['call', 'follow_up', 'meeting', 'proposal'].includes(selectedTask.task_type) && (
+                  <div className="space-y-4 mb-4">
+                    <button 
+                      onClick={() => handleCompleteWithOutcome(selectedTask, 'success')}
+                      className="w-full py-4 bg-blue-600 hover:bg-blue-700 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/20"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Complete Task
+                    </button>
                   </div>
                 )}
 
@@ -1189,6 +1263,21 @@ export default function Tasks() {
                       ))}
                     </div>
                   </div>
+                )}
+              </div>
+            )}
+
+            {selectedTask.status === 'completed' && (
+              <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl mb-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Workflow Execution</p>
+                <div className="flex items-center justify-center gap-2 text-emerald-400 py-4">
+                  <CheckCircle2 className="w-5 h-5" />
+                  <span className="font-bold text-sm">Task Completed</span>
+                </div>
+                {selectedTask.outcome && (
+                  <p className="text-xs text-slate-400 text-center">
+                    Outcome: <span className="font-semibold text-white">{selectedTask.outcome}</span>
+                  </p>
                 )}
               </div>
             )}
@@ -1444,6 +1533,51 @@ export default function Tasks() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Project Requirement</label>
+                <textarea 
+                  value={projectRequirement} 
+                  onChange={e => setProjectRequirement(e.target.value)} 
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" 
+                  placeholder="e.g. Enterprise CRM with custom workflows"
+                  rows={2}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Timeline</label>
+                  <input 
+                    type="text" 
+                    value={timeline} 
+                    onChange={e => setTimeline(e.target.value)} 
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" 
+                    placeholder="e.g. 3 months"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Tech Stack</label>
+                  <input 
+                    type="text" 
+                    value={techStack} 
+                    onChange={e => setTechStack(e.target.value)} 
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" 
+                    placeholder="e.g. React, Node"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Notes</label>
+                <textarea 
+                  value={dealNotes} 
+                  onChange={e => setDealNotes(e.target.value)} 
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" 
+                  placeholder="Additional notes..."
+                  rows={2}
+                />
+              </div>
+
               <div className="pt-4 flex flex-col gap-3">
                 <button 
                   type="submit" 
@@ -1616,6 +1750,60 @@ export default function Tasks() {
                   onClick={() => {
                     handleCompleteWithOutcome(selectedTask, opt.val);
                     setIsMeetingOutcomeModalOpen(false);
+                  }}
+                  className={`w-full p-4 rounded-2xl border-2 border-slate-50 hover:border-slate-200 hover:bg-slate-50 transition-all text-left flex items-start gap-4 group`}
+                >
+                  <div className={`w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-lg shadow-sm border border-slate-200 group-hover:scale-110 transition-transform`}>
+                    {opt.icon}
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-slate-900">{opt.label}</p>
+                    <p className="text-[10px] font-medium text-slate-500 mt-0.5 uppercase tracking-tighter">{opt.desc}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 ml-auto self-center text-slate-300 group-hover:translate-x-1 transition-all" />
+                </button>
+              ))}
+            </div>
+            
+            <div className="px-8 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-center">
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Select outcome to proceed</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isProposalOutcomeModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md animate-fade-in" onClick={() => setIsProposalOutcomeModalOpen(false)} />
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Select Next Deal Stage</h3>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">Deal Lifecycle Progression</p>
+              </div>
+              <button onClick={() => setIsProposalOutcomeModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white text-slate-400 hover:text-rose-500 transition-all shadow-sm">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-3">
+              {[
+                { val: 'Qualification',               label: 'Qualification',               icon: '🎯', color: 'blue',   desc: 'Update deal to Qualification' },
+                { val: 'Needs Analysis',              label: 'Needs Analysis',              icon: '🔍', color: 'cyan',   desc: 'Update deal to Needs Analysis' },
+                { val: 'Value Proposition',           label: 'Value Proposition',           icon: '💡', color: 'indigo', desc: 'Update deal to Value Proposition' },
+                { val: 'Identify Decision Makers',    label: 'Identify Decision Makers',    icon: '👥', color: 'violet', desc: 'Update deal to Identify Decision Makers' },
+                { val: 'Proposal/Price Quote',        label: 'Proposal/Price Quote',        icon: '📄', color: 'purple', desc: 'Update deal to Proposal/Price Quote' },
+                { val: 'Negotiation/Review',          label: 'Negotiation/Review',          icon: '🤝', color: 'amber',  desc: 'Update deal to Negotiation/Review' },
+                { val: 'Closed Won',                  label: 'Closed Won',                  icon: '🎉', color: 'emerald',desc: 'Mark Lead Won \u0026 Deal Closed Won' },
+                { val: 'Closed Lost',                 label: 'Closed Lost',                 icon: '❌', color: 'rose',   desc: 'Mark Lead Lost \u0026 Deal Closed Lost' },
+                { val: 'Closed Lost to Competition',    label: 'Closed Lost to Competition',       icon: '🏳️', color: 'red',    desc: 'Mark Lost to Competition' },
+              ].map(opt => (
+                <button 
+                  key={opt.label}
+                  onClick={() => {
+                    handleCompleteWithOutcome(selectedTask, opt.val);
+                    setIsProposalOutcomeModalOpen(false);
+                    addToast(`Deal moved to ${opt.val}`, 'success');
                   }}
                   className={`w-full p-4 rounded-2xl border-2 border-slate-50 hover:border-slate-200 hover:bg-slate-50 transition-all text-left flex items-start gap-4 group`}
                 >

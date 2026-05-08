@@ -69,6 +69,7 @@ export default function Calls() {
   const [logTaskId, setLogTaskId]       = useState(null);
   const timer = useCallTimer();
   const { addToast } = useToast();
+  const justCompletedTaskIdRef = useRef(null);
   const navigate = useNavigate();
 
   /* ── Data Fetching ───────────────────────────────────────── */
@@ -87,7 +88,7 @@ export default function Calls() {
       if (activeCallId && !timer.running) {
         const strActiveId = String(activeCallId);
         const stillInProgress = (dash.in_progress || []).some(t => String(t.id) === strActiveId);
-        if (!stillInProgress) {
+        if (!stillInProgress && strActiveId !== justCompletedTaskIdRef.current) {
           setActiveCallId(null);
           timer.stop();
           addToast("Active call task was updated or moved", "info");
@@ -136,6 +137,7 @@ export default function Calls() {
 
     try {
       const res = await tasksApi.completeTask(task.id, { outcome });
+      justCompletedTaskIdRef.current = String(task.id);
       addToast(`Task completed — ${outcome}`);
       
       // Handle newly created tasks from workflow (instant UI feedback)

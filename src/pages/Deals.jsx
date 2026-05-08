@@ -115,9 +115,32 @@ const DealCard = memo(({ deal, isOverlay = false }) => {
           {deal.name}
         </h4>
       </div>
-      <div className="flex items-center text-[11px] font-medium text-slate-500 mb-3">
+      <div className="flex items-center text-[11px] font-medium text-slate-500 mb-2">
         <Briefcase className="w-3 h-3 mr-1.5 opacity-50" />
         {deal.company}
+      </div>
+
+      {deal.requirement && (
+        <div className="text-[10px] text-slate-600 mb-2 line-clamp-2 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+          <span className="font-bold text-slate-400 uppercase text-[8px] tracking-widest block mb-0.5">Requirement</span>
+          {deal.requirement}
+        </div>
+      )}
+      
+      <div className="flex items-center gap-3 mb-3">
+        {deal.timeline && (
+          <div className="text-[10px] text-slate-500">
+            <span className="font-bold text-slate-400 uppercase text-[8px] tracking-widest mr-1">Timeline:</span>
+            {deal.timeline}
+          </div>
+        )}
+        
+        {deal.techStack && (
+          <div className="text-[10px] text-slate-500">
+            <span className="font-bold text-slate-400 uppercase text-[8px] tracking-widest mr-1">Tech:</span>
+            {deal.techStack}
+          </div>
+        )}
       </div>
       <div className="mb-3">
         <div className="flex justify-between items-center mb-1">
@@ -244,10 +267,28 @@ export default function Deals() {
       columns[s.id] = { id: s.id, title: s.title, dealIds: [] };
     });
 
+    const stageMap = {
+      'Proposal/Price Quote': 'proposal',
+      'Negotiation/Review': 'negotiation',
+      'Closed Won': 'closed_won',
+      'Closed Lost': 'closed_lost',
+      'Closed Lost to Competition': 'closed_lost_to_competition',
+      'Qualification': 'qualification',
+      'Needs Analysis': 'needs_analysis',
+      'Value Proposition': 'value_proposition',
+      'Identify Decision Makers': 'identify_decision_makers'
+    };
+
     const dealsMap = {};
     fetchedDeals.forEach(deal => {
       const id = String(deal.id);
-      const stageId = (deal.stage || 'qualification').toLowerCase();
+      const stageId = stageMap[deal.stage] || (deal.stage || 'qualification').toLowerCase();
+      
+      const notes = deal.notes || '';
+      const requirement = notes.match(/Project Requirement: ([^\n]*)/)?.[1] || '';
+      const timeline = notes.match(/Timeline: ([^\n]*)/)?.[1] || '';
+      const techStack = notes.match(/Tech Stack: ([^\n]*)/)?.[1] || '';
+      
       dealsMap[id] = {
         id,
         name: deal.title,
@@ -258,6 +299,9 @@ export default function Deals() {
         stage: stageId,
         probability: deal.probability ?? PROBABILITY_MAP[stageId] ?? 0,
         expectedClose: deal.expected_close_date || 'TBD',
+        requirement,
+        timeline,
+        techStack,
       };
 
       const col = columns[stageId] ?? columns['proposal'] ?? Object.values(columns)[0];
@@ -302,7 +346,7 @@ export default function Deals() {
   }, [fetchDeals, fetchContacts]);
 
   useEffect(() => {
-    if ((lastMessage?.type === 'notification' || lastMessage?.type === 'workflow_log') && !isSyncing && !activeDeal) {
+    if (lastMessage && (lastMessage.model === 'Deal' || lastMessage.model === 'Task') && !isSyncing && !activeDeal) {
       fetchDeals(searchQuery, true);
     }
   }, [lastMessage, searchQuery, fetchDeals, isSyncing, activeDeal]);

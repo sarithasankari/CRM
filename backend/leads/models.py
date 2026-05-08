@@ -10,7 +10,9 @@ class Lead(models.Model):
     STATUS_CHOICES = (
         ('new', 'New'),
         ('contacted', 'Contacted'),
+        ('follow_up', 'Follow up'),
         ('qualified', 'Qualified'),
+        ('meeting_scheduled', 'Meeting Scheduled'),
         ('proposal', 'Proposal'),
         ('won', 'Won'),
         ('lost', 'Lost'),

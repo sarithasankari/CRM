@@ -10,6 +10,7 @@ import {
   Timer, ArrowRight
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { useWebSocket } from '../context/WebSocketContext';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import isToday from 'dayjs/plugin/isToday';
@@ -962,6 +963,7 @@ function EmptyState({ icon, message, sub }) {
 
 export default function Leads() {
   const [leads, setLeads] = useState([]);
+  const { lastMessage } = useWebSocket();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
   const [viewingLead, setViewingLead] = useState(null);
@@ -999,6 +1001,13 @@ export default function Leads() {
       setIsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (lastMessage && lastMessage.type === 'model_update' && lastMessage.model === 'lead') {
+      console.log("[Leads] WebSocket update received, refetching leads...");
+      fetchLeads();
+    }
+  }, [lastMessage, fetchLeads]);
 
   const fetchConversionRate = useCallback(async () => {
     try {

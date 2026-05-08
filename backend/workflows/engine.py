@@ -34,11 +34,14 @@ def trigger_workflows(module_name, trigger_event, instance, extra_context=None, 
     }
     execution_key = _make_execution_key(module_name, trigger, instance, extra_context)
 
+    logger.info(f"[WorkflowEngine] Triggering workflows for {module_name} on {trigger} (Instance: {instance.pk})")
     workflows = Workflow.objects.filter(
         module=module_name,
         trigger_event__in={trigger, trigger_event},
         is_active=True,
     ).prefetch_related('conditions', 'actions__specific_user')
+
+    logger.info(f"[WorkflowEngine] Found {workflows.count()} active workflows for {module_name}:{trigger}")
 
     for workflow in workflows:
         _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_id=chain_id)
@@ -83,6 +86,7 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_i
                 return
 
         # 1. Check debounce
+        logger.info(f"[WorkflowEngine] Checking debounce for {workflow.name}")
         if _is_debounced(workflow, instance):
             WorkflowLog.objects.create(
                 workflow=workflow,
@@ -96,6 +100,7 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_i
             return
 
         # 2. Evaluate conditions
+        logger.info(f"[WorkflowEngine] Evaluating conditions for {workflow.name} on {instance.pk}")
         passed, reason = evaluate_conditions(workflow, instance, event.get('extra', {}))
         if not passed:
             WorkflowLog.objects.create(
@@ -110,6 +115,7 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_i
             return
 
         # 3. Create the Main Workflow Log
+        logger.info(f"[WorkflowEngine] Running workflow {workflow.name} for {instance.pk}")
         log = WorkflowLog.objects.create(
             workflow=workflow,
             status='failure',  # Initial state
@@ -125,6 +131,7 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_i
         completed_actions = []  # Track for compensation logic
         
         actions = workflow.actions.all().order_by('order', 'pk')
+        logger.info(f"[WorkflowEngine] Found {actions.count()} actions for workflow {workflow.name}")
         for action in actions:
             action_status = 'failure'
             action_message = ''
@@ -145,6 +152,7 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_i
                     with transaction.atomic():
                         # Pass chain_id to actions so they can propagate it if they trigger new events
                         event['chain_id'] = chain_id
+                        logger.info(f"[WorkflowEngine] Executing action {action.pk} ({action.action_type}) for {workflow.name}")
                         result = execute_action(action, instance, event)
                         action_status = result.status
                         action_message = result.message

@@ -17,13 +17,14 @@ logger = logging.getLogger(__name__)
 def broadcast_update(message):
     channel_layer = get_channel_layer()
     if channel_layer:
-        async_to_sync(channel_layer.group_send)(
+        from django.db import transaction
+        transaction.on_commit(lambda: async_to_sync(channel_layer.group_send)(
             'global_notifications',
             {
                 'type': 'send_notification',
                 'message': message
             }
-        )
+        ))
 
 def log_and_broadcast(sender, instance, created, **kwargs):
     action = 'create' if created else 'update'

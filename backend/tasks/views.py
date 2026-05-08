@@ -201,6 +201,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         outcome = request.data.get('outcome', '').strip()
         notes = request.data.get('notes', '')
 
+        logger.info(f"[Tasks] Completing task {task.pk} ({task.task_type}) with outcome={outcome}")
+
         if not outcome:
             return Response(
                 {'error': 'outcome is required to complete a task.'},
@@ -222,6 +224,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         with transaction.atomic():
             # Use select_for_update to prevent race conditions during completion
+            logger.info(f"[Tasks] Locking task {task.pk} for completion")
             task = Task.objects.select_for_update().get(pk=task.pk)
             
             if task.status == 'completed':
@@ -258,6 +261,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             
             # Ensure ownership is transferred to the person who actually completed the work
             if task.assigned_to != request.user:
+                logger.info(f"[Tasks] Transferring ownership of task {task.pk} to {request.user.username}")
                 task.assigned_to = request.user
 
             if notes:
@@ -266,6 +270,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task.call_duration = call_duration
                 task.call_outcome = outcome
 
+            logger.info(f"[Tasks] Saving task {task.pk} as completed with outcome={outcome}")
             task.save()
             
             # Workflow actions are now automatically triggered via signals in workflows/signals.py
@@ -274,6 +279,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         from workflows.context import get_captured_tasks, clear_captured_tasks
         captured = get_captured_tasks()
+        logger.info(f"[Tasks] Captured {len(captured)} new tasks from workflows for task {task.pk}")
         new_tasks_data = self.get_serializer(captured, many=True).data
         clear_captured_tasks()
 

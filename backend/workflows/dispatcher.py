@@ -104,7 +104,7 @@ def _generate_event_key(module, trigger, instance, extra):
     # For completion and creation, the fact it happened is enough for deduplication.
     # For updates/stage changes, the specific data change might matter.
     key_extra = extra or {}
-    if trigger in {'on_create', 'on_task_complete', 'delete'}:
+    if trigger in {'on_create', 'delete'}:
         key_extra = {}
     
     raw = {

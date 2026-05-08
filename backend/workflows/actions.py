@@ -253,7 +253,12 @@ def update_record(action, instance, event):
         target.save(update_fields=save_fields)
 
     log_activity('update', f"Workflow updated {target.__class__.__name__} {', '.join(changed)}", target, _record_owner(target))
-    return ActionResult('update_record', message=f"Updated {target.__class__.__name__} {changed}")
+    
+    message = f"Updated {target.__class__.__name__} {changed}"
+    if target.__class__.__name__ == 'Task' and 'task_type' in updates and updates['task_type'] == 'proposal':
+        message = 'Proposal Task Created'
+        
+    return ActionResult('update_record', message=message)
 
 
 def create_quote(action, instance, event):
@@ -364,7 +369,7 @@ def convert_lead_action(action, instance, event):
     
     return ActionResult(
         'convert_lead',
-        message='Lead converted successfully',
+        message='Lead Qualified. Contact & Account synced. Deal Created.',
         created_object=f"leads.Lead:{lead.pk}"
     )
 

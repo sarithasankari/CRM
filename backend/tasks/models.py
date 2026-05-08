@@ -30,6 +30,20 @@ class Task(models.Model):
         ('not_interested', 'Not Interested'),
         ('follow_up', 'Follow-up Required'),
         ('connected', 'Connected'),
+        ('sent', 'Proposal Sent'),
+        ('negotiating', 'Customer Negotiating'),
+        ('accepted', 'Accepted'),
+        ('rejected', 'Rejected'),
+        ('revision', 'Need Revision'),
+        ('Proposal/Price Quote', 'Proposal/Price Quote'),
+        ('Negotiation/Review', 'Negotiation/Review'),
+        ('Closed Won', 'Closed Won'),
+        ('Closed Lost', 'Closed Lost'),
+        ('Closed Lost to Competition', 'Closed Lost to Competition'),
+        ('Qualification', 'Qualification'),
+        ('Needs Analysis', 'Needs Analysis'),
+        ('Value Proposition', 'Value Proposition'),
+        ('Identify Decision Makers', 'Identify Decision Makers'),
     )
 
     PRIORITY_CHOICES = (
