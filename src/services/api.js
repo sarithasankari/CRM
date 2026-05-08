@@ -173,6 +173,7 @@ export const invoicesApi = createResource('invoices');
 export const casesApi = createResource('cases');
 export const usersApi = createResource('users');
 export const meetingsApi = createResource('meetings');
+export const productsApi = createResource('products');
 export const callsApi = {
   ...createResource('calls'),
   startCall: async (data) => {

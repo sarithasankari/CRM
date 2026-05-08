@@ -8,7 +8,9 @@ class Quote(models.Model):
     STATUS_CHOICES = (
         ('draft', 'Draft'),
         ('sent', 'Sent'),
-        ('accepted', 'Accepted'),   # triggers → create_invoice workflow
+        ('viewed', 'Viewed'),
+        ('negotiating', 'Negotiating'),
+        ('accepted', 'Accepted'),
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
         ('expired', 'Expired'),
@@ -24,6 +26,18 @@ class Quote(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     valid_until = models.DateField(null=True, blank=True)
+    
+    # Project Requirements
+    requirement_summary = models.TextField(blank=True, null=True)
+    tech_stack = models.CharField(max_length=255, blank=True, null=True)
+    timeline = models.CharField(max_length=100, blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
+
+    # Terms & Conditions
+    payment_terms = models.TextField(blank=True, null=True)
+    delivery_terms = models.TextField(blank=True, null=True)
+    revision_policy = models.TextField(blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

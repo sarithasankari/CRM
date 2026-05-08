@@ -1,28 +1,68 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Table from '../components/Table';
-import { quotesApi, dealsApi } from '../services/api';
+import { quotesApi, dealsApi, invoicesApi, productsApi } from '../services/api';
 import { 
   Plus, FileText, Download, Loader2, AlertCircle,
   ClipboardCheck, TrendingUp, DollarSign, Calendar,
-  ChevronRight, Filter, Search, MoreHorizontal, Zap
+  ChevronRight, Filter, Search, MoreHorizontal, Zap,
+  User, Clock, CheckCircle, XCircle, Eye, Edit, Copy, Send, FileOutput, Trash,
+  Printer, Share2, Package, Trash2
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import dayjs from 'dayjs';
 
 export default function Quotes() {
   const [quotes, setQuotes] = useState([]);
   const [deals, setDeals] = useState([]);
+  const [products, setProducts] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedQuote, setSelectedQuote] = useState(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState(null); // Tracks open actions menu
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  
   const { addToast } = useToast();
   
-  const [formData, setFormData] = useState({ deal: '', amount: 0, status: 'draft', valid_until: '' });
+  const [formData, setFormData] = useState({ 
+    deal: '', 
+    amount: 0, 
+    status: 'draft', 
+    valid_until: '',
+    requirement_summary: '',
+    tech_stack: '',
+    timeline: '',
+    notes: '',
+    payment_terms: '50% advance, 50% on completion',
+    delivery_terms: 'Digital delivery',
+    revision_policy: 'Up to 3 revisions included'
+  });
+
+  const [editFormData, setEditFormData] = useState({
+    id: null,
+    deal: '',
+    amount: 0,
+    status: 'draft',
+    valid_until: '',
+    requirement_summary: '',
+    tech_stack: '',
+    timeline: '',
+    notes: '',
+    payment_terms: '',
+    delivery_terms: '',
+    revision_policy: '',
+    line_items: []
+  });
 
   const fetchQuotes = async () => {
     try {
       setIsLoading(true);
       const data = await quotesApi.getAll();
-      setQuotes(data.results || []);
+      setQuotes(data.results || data);
     } catch (err) {
       setError('Failed to synchronize proposal registry');
     } finally {
@@ -33,7 +73,16 @@ export default function Quotes() {
   const fetchDeals = async () => {
     try {
       const data = await dealsApi.getAll();
-      setDeals(data.results || []);
+      setDeals(data.results || data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const data = await productsApi.getAll();
+      setProducts(data.results || data);
     } catch (err) {
       console.error(err);
     }
@@ -42,72 +91,307 @@ export default function Quotes() {
   useEffect(() => {
     fetchQuotes();
     fetchDeals();
+    fetchProducts();
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (activeDropdown && !e.target.closest('.actions-dropdown')) {
+        setActiveDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [activeDropdown]);
+
+  const getStatusStyles = (status) => {
+    const s = status?.toLowerCase();
+    if (s === 'draft') return 'bg-slate-100 text-slate-600 border-slate-200';
+    if (s === 'sent') return 'bg-blue-50 text-blue-600 border-blue-100';
+    if (s === 'viewed') return 'bg-indigo-50 text-indigo-600 border-indigo-100';
+    if (s === 'negotiating') return 'bg-amber-50 text-amber-600 border-amber-100';
+    if (s === 'accepted' || s === 'approved') return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+    if (s === 'rejected') return 'bg-rose-50 text-rose-600 border-rose-100';
+    if (s === 'expired') return 'bg-gray-100 text-gray-400 border-gray-200';
+    return 'bg-slate-50 text-slate-400 border-slate-100';
+  };
+
+  const handleStatusChange = async (quote, newStatus) => {
+    try {
+      await quotesApi.patch(quote.id, { status: newStatus });
+      addToast(`Quote marked as ${newStatus}`, 'success');
+      fetchQuotes();
+      if (selectedQuote?.id === quote.id) {
+        setSelectedQuote({ ...selectedQuote, status: newStatus });
+      }
+      
+      // Business Logic: Update Deal stage if accepted/rejected
+      if (newStatus === 'accepted') {
+        const deal = deals.find(d => d.id === quote.deal);
+        if (deal) {
+          await dealsApi.update(deal.id, { stage: 'won' });
+          addToast('Linked Deal updated to Closed Won!', 'success');
+        }
+      } else if (newStatus === 'rejected') {
+        const deal = deals.find(d => d.id === quote.deal);
+        if (deal) {
+          await dealsApi.update(deal.id, { stage: 'lost' });
+          addToast('Linked Deal updated to Closed Lost', 'info');
+        }
+      }
+    } catch (err) {
+      addToast('Failed to update status', 'error');
+    }
+    setActiveDropdown(null);
+  };
+
+  const handleDuplicate = async (quote) => {
+    try {
+      const payload = {
+        ...quote,
+        quote_number: `QT-${Math.floor(Math.random() * 10000)}`,
+        status: 'draft',
+      };
+      delete payload.id;
+      delete payload.created_at;
+      delete payload.updated_at;
+      delete payload.customer_name;
+      delete payload.deal_title;
+      delete payload.owner_full_name;
+      
+      await quotesApi.create(payload);
+      addToast('Quote duplicated successfully!', 'success');
+      fetchQuotes();
+    } catch (err) {
+      addToast('Failed to duplicate quote', 'error');
+    }
+    setActiveDropdown(null);
+  };
+
+  const handleConvertToInvoice = async (quote) => {
+    try {
+      const invoicePayload = {
+        quote: quote.id,
+        invoice_number: `INV-${Math.floor(Math.random() * 10000)}`,
+        // Note: We do not send amount here to ensure Invoices remain dynamic 
+        // and fetch live data from the Quote.
+        status: 'draft',
+        due_date: dayjs().add(30, 'day').format('YYYY-MM-DD')
+      };
+      await invoicesApi.create(invoicePayload);
+      addToast('Invoice created successfully!', 'success');
+    } catch (err) {
+      addToast('Failed to convert to invoice', 'error');
+    }
+    setActiveDropdown(null);
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this quote?')) return;
+    try {
+      await quotesApi.delete(id);
+      addToast('Quote deleted successfully', 'success');
+      fetchQuotes();
+    } catch (err) {
+      addToast('Failed to delete quote', 'error');
+    }
+    setActiveDropdown(null);
+  };
+
+  const handleDownloadPDF = (quote) => {
+    setSelectedQuote(quote);
+    setIsGeneratingPDF(true);
+    
+    setTimeout(() => {
+      const element = document.getElementById(`printable-quote-${quote.id}`);
+      if (!element) {
+        addToast('Quote element not found', 'error');
+        setIsGeneratingPDF(false);
+        return;
+      }
+      
+      const opt = {
+        margin:       0.5,
+        filename:     `Quotation-${quote.quote_number}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      };
+      
+      if (window.html2pdf) {
+        window.html2pdf().from(element).set(opt).save().then(() => {
+          setIsGeneratingPDF(false);
+          addToast('Quotation PDF downloaded successfully', 'success');
+        }).catch(err => {
+          console.error(err);
+          setIsGeneratingPDF(false);
+          addToast('Failed to generate PDF', 'error');
+        });
+      } else {
+        setIsGeneratingPDF(false);
+        addToast('PDF library not loaded. Please refresh.', 'error');
+      }
+    }, 500);
+    
+    setActiveDropdown(null);
+  };
+
+  const handleEditClick = (quote) => {
+    setEditFormData({
+      id: quote.id,
+      deal: quote.deal,
+      amount: quote.amount,
+      status: quote.status,
+      valid_until: quote.valid_until || '',
+      requirement_summary: quote.requirement_summary || '',
+      tech_stack: quote.tech_stack || '',
+      timeline: quote.timeline || '',
+      notes: quote.notes || '',
+      payment_terms: quote.payment_terms || '',
+      delivery_terms: quote.delivery_terms || '',
+      revision_policy: quote.revision_policy || '',
+      line_items: quote.line_items || []
+    });
+    setIsEditing(true);
+    setActiveDropdown(null);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      // Calculate total amount from line items
+      const totalAmount = editFormData.line_items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+      
+      const payload = { 
+        ...editFormData,
+        amount: totalAmount > 0 ? totalAmount : editFormData.amount
+      };
+      
+      // Fix: DRF fails with empty string for date
+      if (!payload.valid_until) payload.valid_until = null;
+      
+      await quotesApi.patch(editFormData.id, payload);
+      addToast('Quote updated successfully', 'success');
+      setIsEditing(false);
+      fetchQuotes();
+    } catch (err) {
+      addToast('Failed to update quote', 'error');
+    }
+  };
+
+  const handleAddLineItem = () => {
+    setEditFormData({
+      ...editFormData,
+      line_items: [
+        ...editFormData.line_items,
+        { product: '', quantity: 1, unit_price: 0 }
+      ]
+    });
+  };
+
+  const handleRemoveLineItem = (index) => {
+    const newList = [...editFormData.line_items];
+    newList.splice(index, 1);
+    setEditFormData({ ...editFormData, line_items: newList });
+  };
+
+  const handleLineItemChange = (index, field, value) => {
+    const newList = [...editFormData.line_items];
+    newList[index][field] = value;
+    
+    // Auto-fill price if product changes
+    if (field === 'product') {
+      const prod = products.find(p => p.id === parseInt(value));
+      if (prod) {
+        newList[index]['unit_price'] = parseFloat(prod.price);
+      }
+    }
+    
+    setEditFormData({ ...editFormData, line_items: newList });
+  };
 
   const columns = [
     { 
-      header: 'Proposal ID', 
+      header: 'Quote Number', 
       accessor: 'quote_number', 
       render: (row) => (
         <div className="flex items-center">
-          <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 mr-4 group-hover:scale-110 transition-transform">
-             <ClipboardCheck className="w-5 h-5" />
+          <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 mr-3">
+             <ClipboardCheck className="w-4 h-4" />
           </div>
-          <div className="flex flex-col">
-             <span className="text-sm font-black text-blue-600">#{row.quote_number}</span>
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Registry Entry</span>
-          </div>
+          <span className="text-sm font-semibold text-blue-600">#{row.quote_number}</span>
         </div>
       )
     },
     { 
-      header: 'Target Opportunity', 
-      accessor: 'deal', 
-      render: (row) => {
-        const deal = deals.find(d => d.id === row.deal);
-        return (
-          <div className="flex flex-col">
-            <span className="text-sm font-bold text-slate-900">{deal?.title || `Deal #${row.deal}`}</span>
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Strategic Lead</span>
-          </div>
-        );
-      }
+      header: 'Customer', 
+      accessor: 'customer_name',
+      render: (row) => (
+        <span className="text-sm font-semibold text-slate-900">{row.customer_name || 'N/A'}</span>
+      )
     },
     { 
-      header: 'Yield Projection', 
+      header: 'Deal', 
+      accessor: 'deal_title', 
+      render: (row) => (
+        <span className="text-sm text-slate-600">{row.deal_title || 'N/A'}</span>
+      )
+    },
+    { 
+      header: 'Amount', 
       accessor: 'amount', 
       render: (row) => (
-        <div className="flex flex-col">
-          <span className="text-sm font-black text-slate-900">${Number(row.amount).toLocaleString()}</span>
-          <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mt-0.5">Projected Revenue</span>
-        </div>
+        <span className="text-sm font-semibold text-slate-900">${parseFloat(row.amount).toLocaleString()}</span>
       )
     },
     { 
-      header: 'Protocol State', 
+      header: 'Status', 
       accessor: 'status',
-      render: (row) => {
-        const status = row.status?.toLowerCase();
-        let colors = 'bg-slate-50 text-slate-400 border-slate-100';
-        if (status === 'approved') colors = 'bg-emerald-50 text-emerald-600 border-emerald-100';
-        if (status === 'sent') colors = 'bg-blue-50 text-blue-600 border-blue-100';
-
-        return (
-          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center w-fit ${colors}`}>
-            <Zap className={`w-3 h-3 mr-1.5 ${status === 'approved' ? 'fill-emerald-500' : ''}`} /> {row.status}
-          </span>
-        );
-      }
+      render: (row) => (
+        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border ${getStatusStyles(row.status)}`}>
+          {row.status}
+        </span>
+      )
+    },
+    { 
+      header: 'Valid Until', 
+      accessor: 'valid_until',
+      render: (row) => (
+        <span className="text-sm text-slate-500">{row.valid_until ? dayjs(row.valid_until).format('MMM D, YYYY') : 'N/A'}</span>
+      )
+    },
+    { 
+      header: 'Owner', 
+      accessor: 'owner_full_name',
+      render: (row) => (
+        <div className="flex items-center space-x-2">
+          <User className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-sm text-slate-600">{row.owner_full_name || 'N/A'}</span>
+        </div>
+      )
     },
     {
       header: '',
       accessor: 'actions',
-      render: () => (
-        <div className="flex justify-end space-x-2">
-          <button className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
-            <Download className="w-4 h-4" />
+      render: (row) => (
+        <div className="flex justify-end space-x-1">
+          <button 
+            onClick={() => { setSelectedQuote(row); setIsDetailsOpen(true); }}
+            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+            title="View Details"
+          >
+            <Eye className="w-4 h-4" />
           </button>
-          <button className="p-2 text-slate-300 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition-all">
+          
+          <button 
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setDropdownPosition({ top: rect.bottom + window.scrollY, left: rect.left + window.scrollX });
+              setActiveDropdown(activeDropdown === row.id ? null : row.id);
+            }}
+            className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-all" 
+            title="More Actions"
+          >
             <MoreHorizontal className="w-4 h-4" />
           </button>
         </div>
@@ -115,107 +399,617 @@ export default function Quotes() {
     }
   ];
 
-  const handleCreateQuote = async () => {
+  const handleCreateQuoteSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.deal) {
+      addToast('Please select a target opportunity', 'error');
+      return;
+    }
+    
     try {
+      const payload = { ...formData };
+      if (!payload.valid_until) delete payload.valid_until;
+      
       await quotesApi.create({
-        ...formData,
+        ...payload,
         quote_number: `QT-${Math.floor(Math.random() * 10000)}`
       });
-      addToast('Proposal Integrated Successfully');
+      addToast('Quote created successfully!', 'success');
       setIsCreating(false);
+      setFormData({ 
+        deal: '', 
+        amount: 0, 
+        status: 'draft', 
+        valid_until: '',
+        requirement_summary: '',
+        tech_stack: '',
+        timeline: '',
+        notes: '',
+        payment_terms: '50% advance, 50% on completion',
+        delivery_terms: 'Digital delivery',
+        revision_policy: 'Up to 3 revisions included'
+      });
       fetchQuotes();
     } catch (err) {
-      addToast('Proposal Integration Failed', 'error');
+      addToast('Failed to create quote', 'error');
     }
   };
 
   return (
-    <div className="space-y-8 animate-fade-in max-w-[1400px] mx-auto pb-10">
+    <div className="space-y-6 animate-fade-in max-w-[1400px] mx-auto pb-10">
       
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
            <div className="flex items-center space-x-2 mb-1">
              <ClipboardCheck className="w-5 h-5 text-blue-600" />
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inventory</span>
+             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sales</span>
           </div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Quotes</h2>
+          <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Quotations</h2>
         </div>
         
         <div className="flex items-center space-x-3">
           <button 
             onClick={() => setIsCreating(!isCreating)}
-            className={`inline-flex items-center px-6 py-2.5 rounded-2xl font-black text-sm shadow-xl transition-all ${
+            className={`inline-flex items-center px-5 py-2.5 rounded-xl font-semibold text-sm shadow-sm transition-all ${
               isCreating 
                 ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' 
-                : 'bg-slate-900 text-white shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0'
+                : 'bg-blue-600 text-white shadow-blue-600/20 hover:bg-blue-700'
             }`}
           >
-            {isCreating ? 'Dismiss Builder' : <><Plus className="mr-2 w-4 h-4" /> Add Quote</>}
+            {isCreating ? 'Cancel' : <><Plus className="mr-2 w-4 h-4" /> Create Quote</>}
           </button>
         </div>
       </div>
 
       {isCreating ? (
-        <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 p-10 animate-in slide-in-from-top-4 duration-500">
-          <div className="flex items-center justify-between mb-8">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 animate-fade-in">
+          <div className="flex items-center justify-between mb-6">
              <div>
-                <h3 className="text-2xl font-black text-slate-900">Proposal Builder</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Strategic Quotation Engine</p>
-             </div>
-             <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
-                <Zap className="w-6 h-6 fill-current" />
+                <h3 className="text-xl font-bold text-slate-900">New Quotation</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Define project requirements and terms</p>
              </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Target Opportunity</label>
-              <select className="input-field appearance-none bg-white" value={formData.deal} onChange={e => setFormData({...formData, deal: e.target.value})}>
-                <option value="">Select Protocol</option>
-                {deals.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Yield Specification ($)</label>
-              <div className="relative">
-                 <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                 <input type="number" className="input-field pl-10" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} placeholder="0.00" />
+          <form onSubmit={handleCreateQuoteSubmit}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Target Opportunity *</label>
+                <select className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10" value={formData.deal} onChange={e => setFormData({...formData, deal: e.target.value})}>
+                  <option value="">Select Deal</option>
+                  {deals.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Quote Amount ($) *</label>
+                <div className="relative">
+                   <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                   <input type="number" className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} placeholder="0.00" />
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="mt-10 pt-8 border-t border-slate-50 flex justify-end items-center space-x-4">
-            <button onClick={() => setIsCreating(false)} className="text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Cancel</button>
-            <button onClick={handleCreateQuote} className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-600/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
-               <FileText className="w-4 h-4 mr-2" /> Finalize Registry
-            </button>
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Valid Until</label>
+                <input type="date" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10" value={formData.valid_until} onChange={e => setFormData({...formData, valid_until: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Tech Stack</label>
+                <input type="text" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10" value={formData.tech_stack} onChange={e => setFormData({...formData, tech_stack: e.target.value})} placeholder="e.g. React, Node.js, PostgreSQL" />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Requirement Summary</label>
+              <textarea className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 h-24" value={formData.requirement_summary} onChange={e => setFormData({...formData, requirement_summary: e.target.value})} placeholder="Briefly describe what the client needs..."></textarea>
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-slate-100 flex justify-end items-center space-x-3">
+              <button type="button" onClick={() => setIsCreating(false)} className="text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">Discard</button>
+              <button type="submit" className="px-5 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors flex items-center">
+                 <FileText className="w-4 h-4 mr-2" /> Save Draft
+              </button>
+            </div>
+          </form>
         </div>
       ) : (
-        <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px]">
-          <div className="px-8 py-6 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
-             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Proposal Registry</h3>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px]">
+          <div className="px-6 py-4 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
+             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Proposals</h3>
              <div className="flex items-center space-x-3">
                 <div className="relative">
-                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
-                   <input type="text" placeholder="Filter registry..." className="pl-9 pr-4 py-1.5 bg-white border border-slate-100 rounded-xl text-xs outline-none focus:border-blue-500 transition-all" />
+                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                   <input type="text" placeholder="Filter registry..." className="pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-blue-500 transition-all" />
                 </div>
-                <button className="p-2 text-slate-400 hover:text-slate-900 transition-colors">
-                   <Filter className="w-4 h-4" />
-                </button>
              </div>
           </div>
           
           {isLoading ? (
-            <div className="flex flex-col items-center justify-center h-[500px]">
-               <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
-               <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Compiling Proposal Database...</p>
+            <div className="flex flex-col items-center justify-center h-[400px]">
+               <div className="w-8 h-8 border-2 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
+               <p className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Loading...</p>
             </div>
           ) : (
             <Table columns={columns} data={quotes} />
           )}
         </div>
+      )}
+
+      {/* Details Drawer */}
+      {isDetailsOpen && selectedQuote && (
+        <div className="fixed inset-0 z-[100] flex justify-end">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsDetailsOpen(false)} />
+          <div className="bg-white w-full max-w-2xl h-full shadow-2xl relative z-10 overflow-y-auto animate-fade-in">
+            
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-20">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xl font-bold text-slate-900">Quote #{selectedQuote.quote_number}</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest border ${getStatusStyles(selectedQuote.status)}`}>
+                    {selectedQuote.status}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">Created on {dayjs(selectedQuote.created_at).format('MMM D, YYYY')}</p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={() => handleDownloadPDF(selectedQuote)} 
+                  className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-lg" 
+                  title="Download PDF"
+                  disabled={isGeneratingPDF}
+                >
+                  {isGeneratingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                </button>
+                <button onClick={() => setIsDetailsOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors">
+                  <XCircle className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Actions Bar */}
+            <div className="px-6 py-3 border-b border-slate-50 bg-slate-50/50 flex flex-wrap gap-2">
+              <button 
+                onClick={() => handleStatusChange(selectedQuote, 'sent')}
+                className="inline-flex items-center px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <Send className="w-3.5 h-3.5 mr-1.5 text-blue-500" /> Send Quote
+              </button>
+              <button 
+                onClick={() => handleStatusChange(selectedQuote, 'accepted')}
+                className="inline-flex items-center px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-emerald-600 hover:bg-emerald-50"
+              >
+                <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Accept
+              </button>
+              <button 
+                onClick={() => handleStatusChange(selectedQuote, 'rejected')}
+                className="inline-flex items-center px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50"
+              >
+                <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
+              </button>
+              <button 
+                onClick={() => handleConvertToInvoice(selectedQuote)}
+                className="inline-flex items-center px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-emerald-600 hover:bg-emerald-50"
+              >
+                <FileOutput className="w-3.5 h-3.5 mr-1.5" /> Convert to Invoice
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Customer & Deal Info */}
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Customer Info</h4>
+                  <p className="text-sm font-semibold text-slate-900">{selectedQuote.customer_name || 'N/A'}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Linked to Deal: {selectedQuote.deal_title || 'N/A'}</p>
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Financials</h4>
+                  <p className="text-xl font-bold text-slate-900">${parseFloat(selectedQuote.amount).toLocaleString()}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 flex items-center">
+                    <Clock className="w-3 h-3 mr-1" /> Valid Until: {selectedQuote.valid_until ? dayjs(selectedQuote.valid_until).format('MMM D, YYYY') : 'N/A'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Project Requirements */}
+              <div className="border-t border-slate-100 pt-5">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Project Requirements</h4>
+                <div className="bg-slate-50 rounded-lg p-4 space-y-3">
+                  <div>
+                    <span className="text-xs font-bold text-slate-500">Requirement Summary:</span>
+                    <p className="text-sm text-slate-700 mt-0.5">{selectedQuote.requirement_summary || 'No summary provided.'}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-xs font-bold text-slate-500">Tech Stack:</span>
+                      <p className="text-sm text-slate-700 mt-0.5">{selectedQuote.tech_stack || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-500">Timeline:</span>
+                      <p className="text-sm text-slate-700 mt-0.5">{selectedQuote.timeline || 'N/A'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quote Items Table */}
+              <div className="border-t border-slate-100 pt-5">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Quote Items</h4>
+                <div className="overflow-hidden border border-slate-200 rounded-lg">
+                  <table className="min-w-full divide-y divide-slate-200">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Item</th>
+                        <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Qty</th>
+                        <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Price</th>
+                        <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {selectedQuote.line_items?.length > 0 ? (
+                        selectedQuote.line_items.map((item, idx) => (
+                          <tr key={idx}>
+                            <td className="px-4 py-2 text-sm text-slate-900">{item.product_name || `Item #${item.product}`}</td>
+                            <td className="px-4 py-2 text-sm text-slate-600 text-right">{item.quantity}</td>
+                            <td className="px-4 py-2 text-sm text-slate-600 text-right">${parseFloat(item.unit_price).toLocaleString()}</td>
+                            <td className="px-4 py-2 text-sm text-slate-900 text-right font-semibold">${parseFloat(item.line_total).toLocaleString()}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="px-4 py-2 text-sm text-slate-900">Custom Project Service</td>
+                          <td className="px-4 py-2 text-sm text-slate-600 text-right">1</td>
+                          <td className="px-4 py-2 text-sm text-slate-600 text-right">${parseFloat(selectedQuote.amount).toLocaleString()}</td>
+                          <td className="px-4 py-2 text-sm text-slate-900 text-right font-semibold">${parseFloat(selectedQuote.amount).toLocaleString()}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Pricing Summary */}
+              <div className="border-t border-slate-100 pt-5 flex justify-end">
+                <div className="w-64 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Subtotal:</span>
+                    <span className="font-semibold text-slate-900">${parseFloat(selectedQuote.amount).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Tax (GST 18%):</span>
+                    <span className="font-semibold text-slate-900">${(parseFloat(selectedQuote.amount) * 0.18).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
+                    <span className="text-slate-900">Grand Total:</span>
+                    <span className="text-blue-600">${(parseFloat(selectedQuote.amount) * 1.18).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Terms & Conditions */}
+              <div className="border-t border-slate-100 pt-5">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Terms & Conditions</h4>
+                <div className="space-y-2 text-xs text-slate-600">
+                  <p><span className="font-bold">Payment:</span> {selectedQuote.payment_terms || '50% advance, 50% on completion'}</p>
+                  <p><span className="font-bold">Delivery:</span> {selectedQuote.delivery_terms || 'Digital delivery'}</p>
+                  <p><span className="font-bold">Revision:</span> {selectedQuote.revision_policy || 'Up to 3 revisions included'}</p>
+                </div>
+              </div>
+
+              {/* Activity Timeline */}
+              <div className="border-t border-slate-100 pt-5">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Activity Timeline</h4>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                    <span className="text-xs font-bold text-slate-700">Quote Created</span>
+                    <span className="text-xs text-slate-500">{dayjs(selectedQuote.created_at).format('MMM D, YYYY HH:mm')}</span>
+                  </div>
+                  {selectedQuote.status !== 'draft' && (
+                    <div className="flex items-center space-x-3">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                      <span className="text-xs font-bold text-slate-700">Quote Marked as {selectedQuote.status}</span>
+                      <span className="text-xs text-slate-500">{dayjs(selectedQuote.updated_at).format('MMM D, YYYY HH:mm')}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {isEditing && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsEditing(false)} />
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl relative z-10 overflow-y-auto animate-fade-in p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Edit Quotation</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Update project details and items</p>
+              </div>
+              <button onClick={() => setIsEditing(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-colors">
+                <XCircle className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Target Opportunity *</label>
+                  <select className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10" value={editFormData.deal} onChange={e => setEditFormData({...editFormData, deal: e.target.value})}>
+                    <option value="">Select Deal</option>
+                    {deals.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Status</label>
+                  <select className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10" value={editFormData.status} onChange={e => setEditFormData({...editFormData, status: e.target.value})}>
+                    <option value="draft">Draft</option>
+                    <option value="sent">Sent</option>
+                    <option value="viewed">Viewed</option>
+                    <option value="negotiating">Negotiating</option>
+                    <option value="accepted">Accepted</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Valid Until</label>
+                  <input type="date" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10" value={editFormData.valid_until} onChange={e => setEditFormData({...editFormData, valid_until: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Tech Stack</label>
+                  <input type="text" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10" value={editFormData.tech_stack} onChange={e => setEditFormData({...editFormData, tech_stack: e.target.value})} />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Requirement Summary</label>
+                <textarea className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 h-20" value={editFormData.requirement_summary} onChange={e => setEditFormData({...editFormData, requirement_summary: e.target.value})} />
+              </div>
+
+              {/* Line Items Editor */}
+              <div className="border-t border-slate-100 pt-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Quote Items</h4>
+                  <button type="button" onClick={handleAddLineItem} className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center">
+                    <Plus className="w-3.5 h-3.5 mr-1" /> Add Item
+                  </button>
+                </div>
+                
+                <div className="space-y-3">
+                  {editFormData.line_items.map((item, index) => (
+                    <div key={index} className="grid grid-cols-12 gap-3 items-center bg-slate-50 p-3 rounded-lg">
+                      <div className="col-span-5">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Product/Service</label>
+                        <select 
+                          className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                          value={item.product}
+                          onChange={e => handleLineItemChange(index, 'product', e.target.value)}
+                        >
+                          <option value="">Select Product</option>
+                          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Qty</label>
+                        <input 
+                          type="number" 
+                          className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                          value={item.quantity}
+                          onChange={e => handleLineItemChange(index, 'quantity', parseInt(e.target.value))}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price</label>
+                        <input 
+                          type="number" 
+                          className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                          value={item.unit_price}
+                          onChange={e => handleLineItemChange(index, 'unit_price', parseFloat(e.target.value))}
+                        />
+                      </div>
+                      <div className="col-span-2 flex justify-end pt-5">
+                        <button type="button" onClick={() => handleRemoveLineItem(index)} className="text-rose-500 hover:text-rose-700 p-1">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {editFormData.line_items.length === 0 && (
+                    <div className="text-center py-4 bg-slate-50 rounded-lg text-xs text-slate-400">
+                      No items added. Click "Add Item" to build the quote.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Pricing Summary */}
+              <div className="border-t border-slate-100 pt-5 flex justify-end">
+                <div className="w-64 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Subtotal:</span>
+                    <span className="font-semibold text-slate-900">
+                      ${editFormData.line_items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
+                    <span className="text-slate-900">Estimated Total:</span>
+                    <span className="text-blue-600">
+                      ${(editFormData.line_items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0) * 1.18).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 pt-6 border-t border-slate-100 flex justify-end items-center space-x-3">
+                <button type="button" onClick={() => setIsEditing(false)} className="text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white rounded-lg font-semibold text-sm hover:bg-emerald-700 transition-colors flex items-center">
+                   <CheckCircle className="w-4 h-4 mr-2" /> Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden Printable/PDF Area (Positioned off-screen) */}
+      {selectedQuote && (
+        <div id={`printable-quote-${selectedQuote.id}`} className="absolute -left-[9999px] top-0 p-10 bg-white text-slate-900 w-[800px]" style={{ fontFamily: 'Inter, sans-serif' }}>
+          <div className="flex justify-between items-start border-b-2 border-slate-200 pb-5">
+            <div>
+              <h1 className="text-3xl font-bold text-blue-600">QUOTATION</h1>
+              <p className="text-sm text-slate-500 mt-1"># {selectedQuote.quote_number}</p>
+            </div>
+            <div className="text-right">
+              <h2 className="text-lg font-bold">Your Company Name</h2>
+              <p className="text-xs text-slate-500">support@yourcompany.com</p>
+              <p className="text-xs text-slate-500">+1 234 567 890</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-10 mt-6">
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">Prepared For</h3>
+              <p className="text-base font-bold">{selectedQuote.customer_name || 'N/A'}</p>
+              <p className="text-sm text-slate-600">Deal: {selectedQuote.deal_title || 'N/A'}</p>
+            </div>
+            <div className="text-right">
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">Quote Details</h3>
+              <p className="text-sm"><span className="font-semibold">Date:</span> {dayjs(selectedQuote.created_at).format('MMM D, YYYY')}</p>
+              <p className="text-sm"><span className="font-semibold">Valid Until:</span> {selectedQuote.valid_until ? dayjs(selectedQuote.valid_until).format('MMM D, YYYY') : 'N/A'}</p>
+              <p className="text-sm"><span className="font-semibold">Sales Owner:</span> {selectedQuote.owner_full_name || 'N/A'}</p>
+            </div>
+          </div>
+
+          <div className="mt-8">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Project Requirements</h3>
+            <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded">{selectedQuote.requirement_summary || 'No summary provided.'}</p>
+          </div>
+
+          <div className="mt-8">
+            <table className="min-w-full divide-y divide-slate-200 border border-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-bold text-slate-500 uppercase">Item</th>
+                  <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase">Qty</th>
+                  <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase">Price</th>
+                  <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {selectedQuote.line_items?.length > 0 ? (
+                  selectedQuote.line_items.map((item, idx) => (
+                    <tr key={idx}>
+                      <td className="px-4 py-2 text-sm">{item.product_name || `Item #${item.product}`}</td>
+                      <td className="px-4 py-2 text-sm text-right">{item.quantity}</td>
+                      <td className="px-4 py-2 text-sm text-right">${parseFloat(item.unit_price).toLocaleString()}</td>
+                      <td className="px-4 py-2 text-sm text-right font-semibold">${parseFloat(item.line_total).toLocaleString()}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="px-4 py-2 text-sm">Custom Project Service</td>
+                    <td className="px-4 py-2 text-sm text-right">1</td>
+                    <td className="px-4 py-2 text-sm text-right">${parseFloat(selectedQuote.amount).toLocaleString()}</td>
+                    <td className="px-4 py-2 text-sm text-right font-semibold">${parseFloat(selectedQuote.amount).toLocaleString()}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-6 flex justify-end">
+            <div className="w-64 space-y-2 border-t border-slate-200 pt-3">
+              <div className="flex justify-between text-sm">
+                <span>Subtotal:</span>
+                <span className="font-semibold">${parseFloat(selectedQuote.amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Tax (18%):</span>
+                <span className="font-semibold">${(parseFloat(selectedQuote.amount) * 0.18).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-base font-bold border-t border-slate-200 pt-2">
+                <span>Grand Total:</span>
+                <span className="text-blue-600">${(parseFloat(selectedQuote.amount) * 1.18).toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-10 grid grid-cols-2 gap-10">
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">Terms & Conditions</h3>
+              <p className="text-xs text-slate-600">Payment: {selectedQuote.payment_terms || '50% advance'}</p>
+              <p className="text-xs text-slate-600">Delivery: {selectedQuote.delivery_terms || 'Digital'}</p>
+              <p className="text-xs text-slate-600">Revision: {selectedQuote.revision_policy || '3 revisions'}</p>
+            </div>
+            <div className="flex flex-col items-end justify-end">
+              <div className="border-t border-slate-300 w-48 text-center pt-2 mt-10">
+                <p className="text-xs font-bold">Authorized Signature</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Portal for Actions Dropdown */}
+      {activeDropdown && (
+        createPortal(
+          <div 
+            className="absolute bg-white border border-slate-200 rounded-lg shadow-lg z-[200] py-1 w-48 animate-fade-in actions-dropdown"
+            style={{ top: dropdownPosition.top, left: dropdownPosition.left - 150 }}
+          >
+            {(() => {
+              const row = quotes.find(q => q.id === activeDropdown);
+              if (!row) return null;
+              return (
+                <>
+                  <button onClick={() => { setSelectedQuote(row); setIsDetailsOpen(true); setActiveDropdown(null); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                    <Eye className="w-3.5 h-3.5 mr-2 text-slate-400" /> View Details
+                  </button>
+                  <button onClick={() => handleEditClick(row)} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                    <Edit className="w-3.5 h-3.5 mr-2 text-slate-400" /> Edit Quote
+                  </button>
+                  <button onClick={() => handleDuplicate(row)} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                    <Copy className="w-3.5 h-3.5 mr-2 text-slate-400" /> Duplicate
+                  </button>
+                  <button onClick={() => handleDownloadPDF(row)} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                    <Download className="w-3.5 h-3.5 mr-2 text-slate-400" /> Download PDF
+                  </button>
+                  <div className="border-t border-slate-100 my-1"></div>
+                  <button onClick={() => handleStatusChange(row, 'sent')} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                    <Send className="w-3.5 h-3.5 mr-2 text-blue-500" /> Mark as Sent
+                  </button>
+                  <button onClick={() => handleStatusChange(row, 'negotiating')} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                    <TrendingUp className="w-3.5 h-3.5 mr-2 text-amber-500" /> Mark as Negotiating
+                  </button>
+                  <button onClick={() => handleStatusChange(row, 'accepted')} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                    <CheckCircle className="w-3.5 h-3.5 mr-2 text-emerald-500" /> Mark as Accepted
+                  </button>
+                  <button onClick={() => handleStatusChange(row, 'rejected')} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                    <XCircle className="w-3.5 h-3.5 mr-2 text-rose-500" /> Mark as Rejected
+                  </button>
+                  <div className="border-t border-slate-100 my-1"></div>
+                  <button onClick={() => handleConvertToInvoice(row)} className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center font-semibold">
+                    <FileOutput className="w-3.5 h-3.5 mr-2" /> Convert to Invoice
+                  </button>
+                  <button onClick={() => handleDelete(row.id)} className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center font-semibold">
+                    <Trash className="w-3.5 h-3.5 mr-2" /> Delete Quote
+                  </button>
+                </>
+              );
+            })()}
+          </div>,
+          document.body
+        )
       )}
     </div>
   );

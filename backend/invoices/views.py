@@ -1,4 +1,6 @@
 from rest_framework import viewsets
+from rest_framework.response import Response
+from django.utils import timezone
 from .models import Invoice
 from .serializers import InvoiceSerializer
 from users.permissions import RoleBasedAccessPermission
@@ -22,7 +24,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return Invoice.objects.none()
 
-        base_qs = Invoice.objects.select_related('owner', 'quote', 'quote__deal')
+        # Only return active invoices by default
+        base_qs = Invoice.objects.filter(is_active=True).select_related('owner', 'quote', 'quote__deal')
 
         if user.role == 'admin':
             return base_qs.all()
@@ -42,3 +45,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         """Owner is immutable after creation."""
         serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft delete invoice."""
+        instance = self.get_object()
+        instance.status = 'deleted'
+        instance.is_active = False
+        instance.deleted_at = timezone.now()
+        instance.deleted_by = request.user
+        instance.save()
+        return Response({"message": "Invoice deleted successfully"})

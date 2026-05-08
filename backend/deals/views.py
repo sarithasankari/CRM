@@ -75,5 +75,6 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by('name')
     serializer_class = ProductSerializer
     permission_classes = [RoleBasedAccessPermission]
-    search_fields = ['name']
-    ordering_fields = ['name', 'price']
+    filterset_fields = ['category', 'service_type', 'is_active', 'featured']
+    search_fields = ['name', 'sku', 'description']
+    ordering_fields = ['name', 'price', 'created_at']

@@ -77,9 +77,54 @@ class Deal(models.Model):
         return f"Deal: {self.title or 'Unnamed'} ({self.status})"
 
 class Product(models.Model):
+    PRODUCT_TYPE_CHOICES = (
+        ('service', 'Service'),
+        ('software_package', 'Software Package'),
+        ('website_package', 'Website Package'),
+        ('subscription', 'Subscription'),
+        ('maintenance_plan', 'Maintenance Plan'),
+        ('add_on', 'Add-on Service'),
+    )
+
+    CATEGORY_CHOICES = (
+        ('web_dev', 'Website Development'),
+        ('software', 'Software Services'),
+        ('seo', 'SEO Services'),
+        ('hosting', 'Hosting & Maintenance'),
+        ('other', 'Other'),
+    )
+
     name = models.CharField(max_length=255)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
+    sku = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='web_dev')
+    service_type = models.CharField(max_length=50, choices=PRODUCT_TYPE_CHOICES, default='service')
+    description = models.TextField(blank=True, null=True)
     
+    # Pricing
+    price = models.DecimalField(max_digits=10, decimal_places=2) # Base Price
+    discount_allowed = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    tax_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    currency = models.CharField(max_length=10, default='USD')
+
+    # Project Details
+    estimated_timeline = models.CharField(max_length=100, blank=True, null=True, help_text="e.g. 2 weeks, 1 month")
+    delivery_type = models.CharField(max_length=50, default='digital')
+    support_duration = models.CharField(max_length=100, blank=True, null=True, help_text="e.g. 3 months, 1 year")
+
+    # Business Details
+    is_active = models.BooleanField(default=True)
+    featured = models.BooleanField(default=False)
+    tags = models.JSONField(default=list, blank=True, null=True)
+
+    # Optional
+    tech_stack = models.CharField(max_length=255, blank=True, null=True)
+    features_included = models.JSONField(default=list, blank=True, null=True)
+    limitations = models.TextField(blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     def __str__(self):
         return self.name
 
