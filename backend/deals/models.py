@@ -26,21 +26,19 @@ class Deal(models.Model):
     notes = models.TextField(blank=True, null=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     contact = models.ForeignKey(Contact, on_delete=models.SET_NULL, null=True, blank=True)
+    campaign = models.ForeignKey('activities.Campaign', on_delete=models.SET_NULL, null=True, blank=True, related_name='campaign_deals')
 
-    @property
-    def probability(self):
-        mapping = {
-            'qualification': 10,
-            'needs_analysis': 20,
-            'value_proposition': 40,
-            'identify_decision_makers': 60,
-            'proposal': 75,
-            'negotiation': 90,
-            'closed_won': 100,
-            'closed_lost': 0,
-            'closed_lost_to_competition': 0,
-        }
-        return mapping.get(self.stage.lower() if self.stage else '', 0)
+    probability = models.IntegerField(default=20, help_text='Win probability (0–100%).')
+    gravity_score = models.FloatField(default=0.0, help_text='Gravity score for physics engine.')
+    momentum = models.FloatField(default=0.0, help_text='Momentum for physics engine.')
+    y_position = models.FloatField(default=0.0, help_text='Y position for physics engine.')
+    gravity_weight = models.FloatField(default=1.0, help_text='Weight for physics engine.')
+    lift_force = models.FloatField(default=0.0, help_text='Lift force for physics engine.')
+    risk_score = models.FloatField(default=0.0, help_text='Risk score.')
+    floating_height = models.FloatField(default=0.0, help_text='Floating height.')
+    glow_intensity = models.FloatField(default=0.0, help_text='Glow intensity.')
+
+
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -69,9 +67,59 @@ class Deal(models.Model):
             self.is_active = True
             self.closed_at = None
 
+    def calculate_probability_and_metrics(self):
+        mapping = {
+            'qualification': 10,
+            'needs analysis': 25,
+            'needs_analysis': 25,
+            'value proposition': 40,
+            'value_proposition': 40,
+            'identify decision makers': 40,
+            'identify_decision_makers': 40,
+            'proposal/price quote': 60,
+            'proposal': 60,
+            'negotiation/review': 80,
+            'negotiation': 80,
+            'closed won': 100,
+            'closed_won': 100,
+            'closed lost': 0,
+            'closed_lost': 0,
+            'closed lost to competition': 0,
+            'closed_lost_to_competition': 0,
+        }
+
+        self.probability = mapping.get(self.stage.lower() if self.stage else '', 0)
+        
+        # Simple gravity calculation based on probability
+        self.gravity_score = self.probability / 100.0
+        self.y_position = self.probability * 5.0 # Just a placeholder scale
+        
+        # Extended physics metrics
+        self.gravity_weight = 1.0 + (float(self.value) / 50000.0) if self.value else 1.0
+        self.lift_force = self.probability / 100.0
+        self.risk_score = 100.0 - self.probability
+        self.floating_height = self.probability * 5.0
+        self.glow_intensity = self.probability / 100.0
+
+
     def save(self, *args, **kwargs):
+        self.calculate_probability_and_metrics()
+        
+        # Handle update_fields
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            update_fields = list(update_fields)
+            if 'stage' in update_fields:
+                for field in ['probability', 'gravity_score', 'y_position', 'gravity_weight', 'lift_force', 'risk_score', 'floating_height', 'glow_intensity']:
+                    if field not in update_fields:
+                        update_fields.append(field)
+            kwargs['update_fields'] = update_fields
+            
         self.full_clean()
         super().save(*args, **kwargs)
+
+
+
 
     def __str__(self):
         return f"Deal: {self.title or 'Unnamed'} ({self.status})"

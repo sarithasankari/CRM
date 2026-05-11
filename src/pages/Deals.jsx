@@ -42,15 +42,16 @@ const STAGES = [
 
 const PROBABILITY_MAP = {
   'qualification': 10,
-  'needs_analysis': 20,
+  'needs_analysis': 25,
   'value_proposition': 40,
-  'identify_decision_makers': 60,
-  'proposal': 75,
-  'negotiation': 90,
+  'identify_decision_makers': 40,
+  'proposal': 60,
+  'negotiation': 80,
   'closed_won': 100,
   'closed_lost': 0,
   'closed_lost_to_competition': 0
 };
+
 
 const getFutureDate = (days = 30) => {
   const date = new Date();
@@ -162,7 +163,7 @@ const DealCard = memo(({ deal, isOverlay = false }) => {
       <div className="flex items-center justify-between pt-3 border-t border-slate-50">
         <div className="flex flex-col">
           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Value</span>
-          <span className="text-sm font-black text-slate-900">${deal.amount.toLocaleString()}</span>
+          <span className="text-sm font-black text-slate-900">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(deal.amount)}</span>
         </div>
         <div className="w-7 h-7 rounded-full bg-blue-50 border-2 border-white flex items-center justify-center text-[10px] font-black text-blue-600 shadow-sm">
           {deal.ownerInitial}
@@ -195,7 +196,7 @@ const KanbanColumn = memo(({ column, deals, stageInfo, isOver }) => {
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight">{column?.title}</h3>
             <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{deals.length}</span>
           </div>
-          <span className="text-[10px] font-bold text-slate-400 pl-4">${colValue.toLocaleString()} Target</span>
+          <span className="text-[10px] font-bold text-slate-400 pl-4">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(colValue)} Target</span>
         </div>
       </div>
 
@@ -558,7 +559,7 @@ export default function Deals() {
             </div>
             <span className="w-1 h-1 rounded-full bg-slate-300" />
             <div className="flex items-center bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-               <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tight">${totalValue.toLocaleString()} Pipeline Value</span>
+               <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tight">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(totalValue)} Pipeline Value</span>
             </div>
             <div className="ml-4 flex items-center bg-slate-50 px-3 py-1 rounded-full border border-slate-200">
                <div className={`w-1.5 h-1.5 rounded-full mr-2 ${isSyncing ? 'bg-amber-500 animate-ping' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'}`} />
@@ -643,7 +644,7 @@ export default function Deals() {
             <form onSubmit={handleCreateDeal} className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Deal Title</label>
-                <input type="text" placeholder="e.g. Enterprise License" value={formData.title} onChange={e => setFormData(p => ({ ...p, title: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" />
+                <input type="text" placeholder="e.g. Enterprise Licence" value={formData.title} onChange={e => setFormData(p => ({ ...p, title: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contact</label>
@@ -654,7 +655,7 @@ export default function Deals() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Value ($)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Value (₹)</label>
                   <input type="number" placeholder="0.00" value={formData.value} onChange={e => setFormData(p => ({ ...p, value: e.target.value }))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" />
                 </div>
                 <div className="space-y-1">

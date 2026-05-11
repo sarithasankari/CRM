@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, DollarSign, Target, TrendingUp, Calendar, Download, 
   Handshake, ClipboardList, Mail, MoreHorizontal, Loader2, AlertCircle,
-  ArrowUpRight, ArrowDownRight, Activity, Zap, CheckCircle2, Clock
+  ArrowUpRight, ArrowDownRight, Activity, Zap, CheckCircle2, Clock, Megaphone
 } from 'lucide-react';
 import { useWebSocket } from '../context/WebSocketContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
 import { leadsApi, dealsApi, tasksApi, analyticsApi } from '../services/api';
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({ leads: 0, deals: 0, revenue: 0, tasks: 0 });
+  const [stats, setStats] = useState({ leads: 0, deals: 0, revenue: 0, tasks: 0, marketing_roi: '0%' });
   const [dealClosures, setDealClosures] = useState([]);
   const [chartData, setChartData] = useState([]);
   const [activities, setActivities] = useState([]);
@@ -82,7 +82,7 @@ export default function Dashboard() {
           <AlertCircle className="w-5 h-5 mr-3" /> {error}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-5">
           <StatCard 
             title="Total Prospects" 
             value={stats.leads} 
@@ -109,6 +109,15 @@ export default function Dashboard() {
             icon={<DollarSign className="w-5 h-5" />} 
             color="text-amber-600" 
             bg="bg-amber-50" 
+          />
+          <StatCard 
+            title="Marketing ROI" 
+            value={stats.marketing_roi} 
+            trend="+8%" 
+            trendUp={true} 
+            icon={<Megaphone className="w-5 h-5" />} 
+            color="text-indigo-600" 
+            bg="bg-indigo-50" 
           />
           <StatCard 
             title="Open Tasks" 

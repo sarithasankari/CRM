@@ -1505,13 +1505,13 @@ export default function Tasks() {
                   value={dealData.title} 
                   onChange={e => setDealData({...dealData, title: e.target.value})} 
                   className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" 
-                  placeholder="e.g. Enterprise License Deal"
+                  placeholder="e.g. Enterprise Licence Deal"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Amount ($) *</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Amount (₹) *</label>
                   <input 
                     required 
                     type="number" 
@@ -1786,9 +1786,10 @@ export default function Tasks() {
               </button>
             </div>
             
-            <div className="p-8 space-y-3">
+            <div className="p-8 space-y-3 overflow-y-auto max-h-[60vh]">
               {[
                 { val: 'Qualification',               label: 'Qualification',               icon: '🎯', color: 'blue',   desc: 'Update deal to Qualification' },
+
                 { val: 'Needs Analysis',              label: 'Needs Analysis',              icon: '🔍', color: 'cyan',   desc: 'Update deal to Needs Analysis' },
                 { val: 'Value Proposition',           label: 'Value Proposition',           icon: '💡', color: 'indigo', desc: 'Update deal to Value Proposition' },
                 { val: 'Identify Decision Makers',    label: 'Identify Decision Makers',    icon: '👥', color: 'violet', desc: 'Update deal to Identify Decision Makers' },

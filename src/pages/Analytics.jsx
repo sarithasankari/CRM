@@ -16,6 +16,7 @@ export default function Analytics() {
   const [forecastData, setForecastData] = useState([]);
   const [teamData, setTeamData] = useState([]);
   const [kpis, setKpis] = useState([]);
+  const [leadSources, setLeadSources] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   React.useEffect(() => {
@@ -23,12 +24,13 @@ export default function Analytics() {
       setIsLoading(true);
       try {
         const [dashStats, teamStats] = await Promise.all([
-          analyticsApi.getDashboardStats(),
-          analyticsApi.getTeamPerformance()
+          analyticsApi.getDashboardStats({ range: timeframe.toLowerCase() }),
+          analyticsApi.getTeamPerformance({ range: timeframe.toLowerCase() })
         ]);
         setForecastData(dashStats.chartData || []);
         setKpis(dashStats.kpis || []);
         setTeamData(teamStats || []);
+        setLeadSources(dashStats.leadSources || []);
       } catch (e) {
         console.error(e);
       } finally {
@@ -99,7 +101,11 @@ export default function Analytics() {
             </div>
             <div className="mt-6">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{kpi.label}</p>
-              <h3 className="text-3xl font-black text-slate-900 mt-1">{kpi.value}</h3>
+              <h3 className="text-3xl font-black text-slate-900 mt-1">
+                {typeof kpi.value === 'number' 
+                  ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(kpi.value)
+                  : kpi.value}
+              </h3>
             </div>
           </div>
           );
@@ -128,7 +134,14 @@ export default function Analytics() {
             </div>
           </div>
           
-          <div className="h-80 w-full">
+          <div className="h-80 w-full relative">
+            {forecastData.length === 0 && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-10 rounded-2xl">
+                <BarChart3 className="w-10 h-10 text-slate-300 mb-3" />
+                <p className="text-sm font-bold text-slate-900">No Revenue Data Available</p>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Create Closed Won deals to view projections</p>
+              </div>
+            )}
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={forecastData} margin={{ top: 20, right: 0, left: -20, bottom: 0 }} barGap={-24}>
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 900 }} dy={15} />
@@ -147,20 +160,16 @@ export default function Analytics() {
         <div className="bg-slate-900 rounded-[40px] p-10 text-white relative overflow-hidden flex flex-col group">
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-1">
-               <h3 className="text-xl font-black text-white">Global Footprint</h3>
+               <h3 className="text-xl font-black text-white">Lead Sources</h3>
                <Globe className="w-6 h-6 text-blue-500" />
             </div>
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Geospatial Distribution</p>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Acquisition Channels</p>
             
             <div className="mt-12 space-y-10">
-              {[
-                { region: 'North America', value: 45, color: 'blue-500' },
-                { region: 'European Union', value: 32, color: 'indigo-500' },
-                { region: 'Asia Pacific', value: 18, color: 'emerald-500' }
-              ].map((loc, i) => (
+              {leadSources.map((loc, i) => (
                 <div key={i}>
                   <div className="flex justify-between text-[11px] font-black tracking-widest uppercase mb-4">
-                    <span className="text-slate-400">{loc.region}</span>
+                    <span className="text-slate-400">{loc.name}</span>
                     <span>{loc.value}%</span>
                   </div>
                   <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -224,7 +233,11 @@ export default function Analytics() {
                     <div className="text-sm font-bold text-slate-900">{person.deals} Objectives</div>
                   </td>
                   <td className="px-10 py-6 text-center">
-                    <div className="text-sm font-black text-slate-900">{person.revenue}</div>
+                    <div className="text-sm font-black text-slate-900">
+                      {typeof person.revenue === 'number'
+                        ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(person.revenue)
+                        : person.revenue}
+                    </div>
                   </td>
                   <td className="px-10 py-6 text-center">
                     <span className="px-3 py-1 rounded-full bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wider border border-slate-100">

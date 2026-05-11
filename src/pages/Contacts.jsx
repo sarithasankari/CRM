@@ -73,7 +73,7 @@ export default function Contacts() {
       }
     },
     { 
-      header: 'Organization', 
+      header: 'Organisation', 
       accessor: 'company', 
       render: (row) => (
         <div className="flex items-center text-slate-600 font-bold text-sm">
@@ -233,7 +233,7 @@ export default function Contacts() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Corporate Entity</label>
-                    <input type="text" value={formData.company} onChange={e => setFormData({...formData, company: e.target.value})} className="input-field" placeholder="Organization name" />
+                    <input type="text" value={formData.company} onChange={e => setFormData({...formData, company: e.target.value})} className="input-field" placeholder="Organisation name" />
                   </div>
                 </div>
               </div>

@@ -39,23 +39,38 @@ class DashboardStatsAPIView(APIView):
         open_tasks = tasks_qs.exclude(status='Completed').count()
 
         # Monthly Revenue Projection (Won deals)
-        six_months_ago = timezone.now() - timedelta(days=180)
-        monthly_revenue = deals_qs.filter(
+        range_param = request.query_params.get('range', 'monthly')
+        if range_param == 'monthly':
+            days = 30
+        elif range_param == 'quarterly':
+            days = 90
+        elif range_param == 'annual':
+            days = 365
+        else:
+            days = 30
+            
+        start_date = timezone.now() - timedelta(days=days)
+        
+        from collections import defaultdict
+        
+        deals = deals_qs.filter(
             stage='Closed Won', 
-            created_at__gte=six_months_ago
-        ).annotate(
-            month=TruncMonth('created_at')
-        ).values('month').annotate(
-            total=Sum('value')
-        ).order_by('month')
-
+            created_at__gte=start_date
+        ).values('created_at', 'value')
+        
+        monthly_data = defaultdict(float)
+        for d in deals:
+            # Group by month in Python
+            month_key = d['created_at'].replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            monthly_data[month_key] += float(d['value'] or 0)
+            
         chart_data = []
-        for mr in monthly_revenue:
-            month_name = mr['month'].strftime("%b").upper()
+        for month, total in sorted(monthly_data.items()):
+            month_name = month.strftime("%b").upper()
             chart_data.append({
                 'name': month_name,
-                'actual': float(mr['total']),
-                'forecast': float(mr['total']) * 1.2 # dummy forecast calculation
+                'actual': total,
+                'forecast': total * 1.2 # dummy forecast calculation
             })
 
         # Recent activities (Live Pulse replacement)
@@ -83,6 +98,11 @@ class DashboardStatsAPIView(APIView):
                 'iconColor': 'bg-blue-100 text-blue-600',
             })
 
+        from activities.models import Campaign
+        total_budget = Campaign.objects.aggregate(total=Sum('budget'))['total'] or 0
+        total_mkt_revenue = Campaign.objects.aggregate(total=Sum('actual_revenue'))['total'] or 0
+        marketing_roi = (float(total_mkt_revenue) / float(total_budget) * 100) if float(total_budget) > 0 else 0
+
         # KPIs
         win_ratio = deals_qs.filter(stage='Closed Won').count() / deals_qs.count() * 100 if deals_qs.count() > 0 else 0
         avg_deal_size = pipeline_value / active_deals if active_deals > 0 else 0
@@ -90,21 +110,36 @@ class DashboardStatsAPIView(APIView):
         
         kpis = [
           { 'label': 'Conversion Rate', 'value': f"{round(conversion_rate, 1)}%", 'trend': '+0%', 'color': 'blue' },
-          { 'label': 'Avg Deal Size', 'value': f"${float(avg_deal_size):,.0f}", 'trend': '+0%', 'color': 'emerald' },
-          { 'label': 'Cycle Velocity', 'value': '18 Days', 'trend': '-0 Days', 'color': 'amber' },
+          { 'label': 'Avg Deal Size', 'value': float(avg_deal_size), 'trend': '+0%', 'color': 'emerald' },
+          { 'label': 'Marketing ROI', 'value': f"{round(marketing_roi, 1)}%", 'trend': '+5%', 'color': 'indigo' },
           { 'label': 'Win Ratio', 'value': f"{round(win_ratio, 1)}%", 'trend': '+0%', 'color': 'indigo' }
         ]
+
+        # Lead Distribution by Source
+        lead_sources = leads_qs.values('source').annotate(count=Count('id')).order_by('-count')
+        sources_data = []
+        total_leads_count = total_leads if total_leads > 0 else 1
+        for ls in lead_sources:
+            source_key = ls['source'] or 'other'
+            source_display = dict(Lead.SOURCE_CHOICES).get(source_key, 'Other')
+            sources_data.append({
+                'name': source_display,
+                'value': round(ls['count'] / total_leads_count * 100, 1),
+                'color': 'blue-500'
+            })
 
         return Response({
             'stats': {
                 'leads': total_leads,
                 'deals': active_deals,
                 'revenue': float(pipeline_value),
-                'tasks': open_tasks
+                'tasks': open_tasks,
+                'marketing_roi': f"{round(marketing_roi, 1)}%"
             },
             'chartData': chart_data,
             'activities': recent_activities,
-            'kpis': kpis
+            'kpis': kpis,
+            'leadSources': sources_data
         })
 
 
@@ -112,11 +147,23 @@ class TeamPerformanceAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        users = User.objects.prefetch_related('owned_deals').all()
+        users = User.objects.all()
         team_data = []
+        
+        range_param = request.query_params.get('range', 'monthly')
+        if range_param == 'monthly':
+            days = 30
+        elif range_param == 'quarterly':
+            days = 90
+        elif range_param == 'annual':
+            days = 365
+        else:
+            days = 30
+            
+        start_date = timezone.now() - timedelta(days=days)
 
         for user in users:
-            user_deals = Deal.objects.filter(owner=user)
+            user_deals = Deal.objects.filter(owner=user, created_at__gte=start_date)
             won_deals  = user_deals.filter(stage='Closed Won').count()
             total_deals = user_deals.count()
             win_rate = (won_deals / total_deals * 100) if total_deals > 0 else 0
@@ -129,7 +176,7 @@ class TeamPerformanceAPIView(APIView):
                 'name':      user.get_full_name() or user.username,
                 'role':      user.get_role_display(),
                 'deals':     total_deals,
-                'revenue':   f"${float(revenue):,.2f}",
+                'revenue':   float(revenue),
                 'winRate':   round(win_rate, 1),
                 'trend':      'up' if win_rate > 50 else 'down',
                 'trendColor': 'text-emerald-500' if win_rate > 50 else 'text-rose-500',

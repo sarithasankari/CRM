@@ -20,6 +20,9 @@ const Calls          = lazy(() => import('./pages/Calls'));
 const Meetings       = lazy(() => import('./pages/Meetings'));
 const Workflows      = lazy(() => import('./pages/Workflows'));
 const Products       = lazy(() => import('./pages/Products'));
+const Profile        = lazy(() => import('./pages/Profile'));
+const AccountSettings = lazy(() => import('./pages/AccountSettings'));
+const Users          = lazy(() => import('./pages/Users'));
 const Invoices       = lazy(() => import('./pages/Invoices'));
 const Cases          = lazy(() => import('./pages/Cases'));
 const Solutions      = lazy(() => import('./pages/Solutions'));
@@ -27,6 +30,7 @@ const Apps           = lazy(() => import('./pages/Apps'));
 const ApiConsole     = lazy(() => import('./pages/ApiConsole'));
 const Services       = lazy(() => import('./pages/Services'));
 const Projects       = lazy(() => import('./pages/Projects'));
+const ProjectDetail  = lazy(() => import('./pages/ProjectDetail'));
 const Feedback       = lazy(() => import('./pages/Feedback'));
 const Login          = lazy(() => import('./pages/Login'));
 
@@ -58,6 +62,9 @@ function App() {
             
             {/* Phase 1 Modules */}
             <Route path="accounts" element={<Accounts />} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="account" element={<AccountSettings />} />
+            <Route path="users" element={<Users />} />
             <Route path="tasks" element={<Tasks />} />
             <Route path="calls" element={<Calls />} />
             <Route path="meetings" element={<Meetings />} />
@@ -74,6 +81,7 @@ function App() {
             <Route path="api-console" element={<ApiConsole />} />
             <Route path="services" element={<Services />} />
             <Route path="projects" element={<Projects />} />
+            <Route path="projects/:id" element={<ProjectDetail />} />
             <Route path="feedback" element={<Feedback />} />
           </Route>
           <Route path="/login" element={<Login />} />

@@ -1,166 +1,503 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  BookOpen, Search, Folder, ChevronRight, 
-  HelpCircle, Zap, Star, TrendingUp, 
-  ArrowRight, Sparkles, MessageCircle, FileText
+  Search, Plus, Folder, 
+  ThumbsUp, Eye, ChevronRight, X, Pencil, Trash
 } from 'lucide-react';
-
-const categories = [
-  { id: 1, name: 'Getting Started', articles: 12, icon: Sparkles, color: 'blue' },
-  { id: 2, name: 'Billing & Subscriptions', articles: 5, icon: FileText, color: 'emerald' },
-  { id: 3, name: 'API Integration', articles: 8, icon: Zap, color: 'amber' },
-  { id: 4, name: 'Troubleshooting', articles: 15, icon: HelpCircle, color: 'rose' },
-];
-
-const articles = [
-  { id: 1, title: 'How to reset your password', category: 'Troubleshooting', views: 1205, trend: '+12%' },
-  { id: 2, title: 'Setting up your first project', category: 'Getting Started', views: 850, trend: '+5%' },
-  { id: 3, title: 'Understanding your invoice', category: 'Billing & Subscriptions', views: 640, trend: '-2%' },
-  { id: 4, title: 'Authenticating with the API', category: 'API Integration', views: 2300, trend: '+24%' },
-];
+import { solutionsApi } from '../services/api';
+import { useToast } from '../context/ToastContext';
 
 export default function Solutions() {
-  const [searchTerm, setSearchTerm] = useState('');
+  const { addToast } = useToast();
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedArticle, setSelectedArticle] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [viewingArticle, setViewingArticle] = useState(null);
+  
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('');
+  const [content, setContent] = useState('');
+  const [tags, setTags] = useState('');
 
-  const filteredArticles = articles.filter(a => a.title.toLowerCase().includes(searchTerm.toLowerCase()));
+  const fetchSolutions = () => {
+    setLoading(true);
+    solutionsApi.getAll()
+      .then(data => {
+        setArticles(data.results || data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("[Solutions] Error fetching solutions:", err);
+        setArticles([]);
+        setLoading(false);
+        addToast('Failed to load solutions', 'error');
+      });
+  };
+
+  useEffect(() => {
+    fetchSolutions();
+  }, []);
+
+  const handleCreateArticle = () => {
+    solutionsApi.create({ title, category, content, tags })
+    .then(data => {
+      setIsModalOpen(false);
+      setTitle('');
+      setCategory('');
+      setContent('');
+      setTags('');
+      fetchSolutions();
+      addToast('Article created successfully', 'success');
+    })
+    .catch(err => {
+      console.error("[Solutions] Error in handleCreateArticle:", err);
+      addToast('Failed to create article', 'error');
+    });
+  };
+
+  const handleEditClick = (article) => {
+    setSelectedArticle(article);
+    setTitle(article.title || '');
+    setCategory(article.category || '');
+    setContent(article.content || '');
+    setTags(article.tags || '');
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdateArticle = () => {
+    if (!selectedArticle) return;
+    solutionsApi.update(selectedArticle.id, { title, category, content, tags })
+    .then(data => {
+      setIsEditModalOpen(false);
+      setSelectedArticle(null);
+      setTitle('');
+      setCategory('');
+      setContent('');
+      setTags('');
+      fetchSolutions();
+      addToast('Article updated successfully', 'success');
+    })
+    .catch(err => {
+      console.error("[Solutions] Error in handleUpdateArticle:", err);
+      addToast('Failed to update article', 'error');
+    });
+  };
+
+  const handleDeleteArticle = (id) => {
+    if (!window.confirm('Are you sure you want to delete this article?')) return;
+    solutionsApi.delete(id)
+    .then(() => {
+      fetchSolutions();
+      addToast('Article deleted successfully', 'success');
+    })
+    .catch(err => {
+      console.error("[Solutions] Error in handleDeleteArticle:", err);
+      addToast('Failed to delete article', 'error');
+    });
+  };
+
+  // Derive categories from articles
+  const categories = articles.reduce((acc, art) => {
+    const cat = art.category || 'General';
+    const existing = acc.find(c => c.name === cat);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      acc.push({ name: cat, count: 1 });
+    }
+    return acc;
+  }, []);
+
+  const filteredArticles = selectedCategory === 'All' 
+    ? articles 
+    : articles.filter(art => (art.category || 'General') === selectedCategory);
 
   return (
-    <div className="space-y-12 animate-fade-in max-w-[1400px] mx-auto pb-10">
-      
-      {/* Hero Search Section */}
-      <div className="relative overflow-hidden rounded-[40px] bg-slate-900 px-8 py-20 text-center shadow-2xl">
-        <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/4 w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-[120px]" />
-        <div className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/4 w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px]" />
+    <div className="space-y-8 p-6 bg-slate-50/50 min-h-screen">
+      {/* Header Section with Gradient and Glassmorphism */}
+      <div className="relative bg-white/80 backdrop-blur-xl border border-slate-100 rounded-3xl p-8 shadow-sm overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-400/10 rounded-full blur-3xl -z-10 translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-400/10 rounded-full blur-3xl -z-10 -translate-x-1/2 translate-y-1/2" />
         
-        <div className="relative z-10 max-w-3xl mx-auto space-y-8">
-           <div className="inline-flex items-center space-x-2 px-4 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-full">
-              <Sparkles className="w-4 h-4 text-blue-400" />
-              <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Support</span>
-           </div>
-           <h2 className="text-5xl font-black text-white tracking-tight leading-[1.1]">Solutions</h2>
-           <p className="text-slate-400 text-lg font-medium">Access our documentation and troubleshooting guides.</p>
-           
-           <div className="relative max-w-2xl mx-auto">
-              <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-500" />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div>
+            <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 uppercase tracking-tighter">Solutions Hub</h1>
+            <p className="text-sm text-slate-500 mt-2 font-medium">Access verified troubleshooting guides and documentation.</p>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <div className="relative w-full sm:w-auto">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
-                placeholder="Search for answers..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-16 pr-8 py-5 bg-white rounded-[24px] text-slate-900 text-lg font-bold shadow-2xl focus:ring-4 focus:ring-blue-500/20 outline-none transition-all placeholder:text-slate-400 placeholder:font-normal"
+                placeholder="Search articles..."
+                className="pl-10 pr-4 py-2.5 bg-white/90 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none w-full sm:w-64 shadow-sm"
               />
-           </div>
+            </div>
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="w-full sm:w-auto flex items-center justify-center px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              New Article
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-        {/* Categories Sidebar */}
-        <div className="lg:col-span-4 space-y-8">
-          <div>
-             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center">
-                <Folder className="w-4 h-4 mr-2" /> Categories
-             </h3>
-             <div className="grid grid-cols-1 gap-4">
-                {categories.map(cat => (
-                  <div key={cat.id} className="glass-card group p-6 hover:bg-slate-900 hover:border-slate-900 transition-all cursor-pointer">
-                    <div className="flex items-center justify-between">
-                       <div className="flex items-center space-x-4">
-                          <div className={`w-12 h-12 bg-${cat.color}-50 rounded-2xl flex items-center justify-center text-${cat.color}-600 group-hover:bg-blue-600 group-hover:text-white transition-all`}>
-                             <cat.icon className="w-6 h-6" />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        {/* Left Column - Categories (Glassmorphism Sidebar) */}
+        <div className="lg:col-span-1 space-y-4">
+          <div className="bg-white/80 backdrop-blur-xl border border-slate-100 rounded-3xl p-6 shadow-sm sticky top-6">
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Categories</h3>
+            <div className="space-y-2">
+              <button 
+                onClick={() => setSelectedCategory('All')}
+                className={`w-full flex items-center justify-between p-3 text-sm font-bold rounded-xl transition-colors ${
+                  selectedCategory === 'All' 
+                    ? 'text-blue-600 bg-blue-50' 
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center">
+                  <Folder className={`w-4 h-4 mr-2 ${selectedCategory === 'All' ? 'text-blue-600' : 'text-slate-400'}`} />
+                  <span>All Articles</span>
+                </div>
+                <span className={`text-xs font-black px-2 py-0.5 rounded-full ${
+                  selectedCategory === 'All' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'
+                }`}>{articles.length}</span>
+              </button>
+              
+              {categories.length === 0 ? (
+                <div className="text-xs text-slate-400 p-2">No categories yet</div>
+              ) : (
+                categories.map((cat) => (
+                  <button 
+                    key={cat.name}
+                    onClick={() => setSelectedCategory(cat.name)}
+                    className={`w-full flex items-center justify-between p-3 text-sm font-bold rounded-xl transition-all hover:translate-x-1 ${
+                      selectedCategory === cat.name 
+                        ? 'text-blue-600 bg-blue-50' 
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <Folder className={`w-4 h-4 mr-2 ${selectedCategory === cat.name ? 'text-blue-600' : 'text-slate-400'}`} />
+                      <span>{cat.name}</span>
+                    </div>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      selectedCategory === cat.name ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'
+                    }`}>{cat.count}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column - Articles (Dynamic Cards) */}
+        <div className="lg:col-span-3 space-y-6">
+          <div className="bg-white/80 backdrop-blur-xl border border-slate-100 rounded-3xl p-6 shadow-sm">
+            <h3 className="text-base font-bold text-slate-900 mb-4">Recent Articles</h3>
+            
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span className="ml-3 text-sm text-slate-500 font-bold">Loading articles...</span>
+              </div>
+            ) : filteredArticles.length === 0 ? (
+              <div className="text-center py-16 text-slate-400">
+                <div className="p-4 bg-slate-50 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                  <Folder className="w-8 h-8 text-slate-400" />
+                </div>
+                <div className="text-sm font-bold">No articles found</div>
+                <p className="text-xs mt-1">No articles in this category.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {filteredArticles.map((art) => (
+                  <div 
+                    key={art.id} 
+                    onClick={() => { setViewingArticle(art); setIsViewModalOpen(true); }}
+                    className="p-5 bg-white border border-slate-100 rounded-2xl hover:shadow-lg hover:border-blue-200 transition-all duration-300 group cursor-pointer relative overflow-hidden"
+                  >
+                    <div className="absolute top-0 left-0 w-1 h-full bg-blue-600 opacity-0 group-hover:opacity-100 transition-all" />
+                    
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-2">
+                        <h4 className="text-base font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{art.title}</h4>
+                        
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                          <span className="font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase text-[10px] tracking-wider">{art.category || 'General'}</span>
+                          
+                          <div className="flex items-center gap-1 font-medium">
+                            <Eye className="w-3.5 h-3.5" />
+                            {art.views_count || 0} views
                           </div>
-                          <div>
-                             <h4 className="text-sm font-black text-slate-900 group-hover:text-white transition-colors">{cat.name}</h4>
-                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{cat.articles} Articles</p>
+                          <div className="flex items-center gap-1 font-medium">
+                            <ThumbsUp className="w-3.5 h-3.5" />
+                            {art.helpful_count || 0} helpful
                           </div>
-                       </div>
-                       <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-white transition-all" />
+                          <span className="font-medium">Updated {new Date(art.updated_at).toLocaleDateString()}</span>
+                        </div>
+                        
+                        {/* Tags as Pills */}
+                        {art.tags && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {art.tags.split(',').map((tag, i) => (
+                              <span key={i} className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                #{tag.trim()}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleEditClick(art); }}
+                          className="p-2 text-slate-400 hover:text-blue-600 rounded-xl hover:bg-blue-50 transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteArticle(art.id); }}
+                          className="p-2 text-slate-400 hover:text-red-600 rounded-xl hover:bg-red-50 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash className="w-4 h-4" />
+                        </button>
+                        <button className="p-2 text-slate-400 hover:text-blue-600 rounded-xl hover:bg-blue-50 transition-colors">
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
-             </div>
+              </div>
+            )}
           </div>
-
-          <div className="bg-blue-600 rounded-[32px] p-8 text-white shadow-xl shadow-blue-600/20 relative overflow-hidden group cursor-pointer">
-             <div className="absolute top-0 right-0 -translate-y-1/4 translate-x-1/4 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700" />
-             <MessageCircle className="w-10 h-10 mb-4" />
-             <h4 className="text-xl font-black mb-2">Need Help?</h4>
-             <p className="text-blue-100 text-sm font-medium mb-6 leading-relaxed">Our support team is available to assist you.</p>
-             <button className="w-full py-3 bg-white text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-blue-50 transition-colors">Contact Support</button>
-          </div>
-        </div>
-
-        {/* Knowledge Registry */}
-        <div className="lg:col-span-8 space-y-8">
-           <div className="flex items-center justify-between">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center">
-                 <BookOpen className="w-4 h-4 mr-2" /> Articles
-              </h3>
-              <div className="flex items-center space-x-2 text-[10px] font-black text-emerald-500 uppercase tracking-widest">
-                 <TrendingUp className="w-3 h-3" />
-                 <span>Popular Topics</span>
-              </div>
-           </div>
-
-           <div className="bg-white rounded-[40px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden divide-y divide-slate-50">
-              {filteredArticles.map(article => (
-                <div key={article.id} className="p-8 hover:bg-slate-50/50 transition-all group cursor-pointer">
-                  <div className="flex justify-between items-center">
-                    <div className="flex space-x-6 items-center">
-                       <div className="w-14 h-14 bg-slate-100 rounded-3xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-all">
-                          <FileText className="w-6 h-6" />
-                       </div>
-                       <div className="space-y-1">
-                          <div className="flex items-center space-x-3">
-                             <h4 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors">{article.title}</h4>
-                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded-full">Registry ID: {article.id}</span>
-                          </div>
-                          <div className="flex items-center space-x-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
-                             <span className="flex items-center"><Folder className="w-3 h-3 mr-1.5" /> {article.category}</span>
-                             <span className="flex items-center"><TrendingUp className="w-3 h-3 mr-1.5 text-emerald-500" /> {article.views} Engagements</span>
-                          </div>
-                       </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                       <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">{article.trend}</span>
-                       <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
-                          <ChevronRight className="w-5 h-5" />
-                       </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {filteredArticles.length === 0 && (
-                <div className="p-20 text-center">
-                   <HelpCircle className="w-16 h-16 text-slate-100 mx-auto mb-6" />
-                   <h4 className="text-xl font-black text-slate-900 mb-2">Zero Registry Matches</h4>
-                   <p className="text-sm text-slate-500">The requested logic does not exist in our wisdom database.</p>
-                </div>
-              )}
-           </div>
-
-           {/* Wisdom Quick Link */}
-           <div className="grid grid-cols-2 gap-6">
-              <div className="glass-card p-6 flex items-center space-x-4 border-slate-100 bg-slate-50/20">
-                 <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-blue-600">
-                    <Star className="w-5 h-5" />
-                 </div>
-                 <div>
-                    <h5 className="text-[11px] font-black text-slate-900 uppercase tracking-widest">Protocol Best Practices</h5>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Updated 4h ago</p>
-                 </div>
-              </div>
-              <div className="glass-card p-6 flex items-center space-x-4 border-slate-100 bg-slate-50/20">
-                 <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-indigo-600">
-                    <Zap className="w-5 h-5" />
-                 </div>
-                 <div>
-                    <h5 className="text-[11px] font-black text-slate-900 uppercase tracking-widest">API Webhook Logic</h5>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">High Demand Unit</p>
-                 </div>
-              </div>
-           </div>
         </div>
       </div>
+
+      {/* New Article Modal (Redesigned) */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-slate-100 overflow-hidden transform transition-all">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h2 className="text-lg font-bold text-slate-900">Create New Article</h2>
+              <button onClick={() => setIsModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Title</label>
+                <input 
+                  type="text" 
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Enter article title"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Category</label>
+                <input 
+                  type="text" 
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="e.g. Troubleshooting"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Content</label>
+                <textarea 
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="Write your article content here..."
+                  rows={6}
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Tags</label>
+                <input 
+                  type="text" 
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  placeholder="e.g. login, password (comma separated)"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none"
+                />
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-5 border-t border-slate-100">
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-5 py-2.5 bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleCreateArticle}
+                  className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+                >
+                  Create Article
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Article Modal (Redesigned) */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-slate-100 overflow-hidden transform transition-all">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h2 className="text-lg font-bold text-slate-900">Edit Article</h2>
+              <button onClick={() => { setIsEditModalOpen(false); setSelectedArticle(null); }} className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Title</label>
+                <input 
+                  type="text" 
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Enter article title"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Category</label>
+                <input 
+                  type="text" 
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="e.g. Troubleshooting"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Content</label>
+                <textarea 
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="Write your article content here..."
+                  rows={6}
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Tags</label>
+                <input 
+                  type="text" 
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  placeholder="e.g. login, password (comma separated)"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none"
+                />
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-5 border-t border-slate-100">
+                <button 
+                  onClick={() => { setIsEditModalOpen(false); setSelectedArticle(null); }}
+                  className="px-5 py-2.5 bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleUpdateArticle}
+                  className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+                >
+                  Update Article
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Article Modal (Redesigned for Premium Look) */}
+      {isViewModalOpen && viewingArticle && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl border border-slate-100 overflow-hidden transform transition-all">
+            {/* Header with Dark Slate Background (Matching Sidebar) */}
+            <div className="p-6 bg-slate-900 text-white relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -translate-x-1/2 -translate-y-1/2" />
+              
+              <div className="flex items-start justify-between relative z-10">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest bg-white/10 px-2.5 py-1 rounded-full text-white backdrop-blur-sm">{viewingArticle.category || 'General'}</span>
+                  <h2 className="text-xl font-black mt-2 tracking-tight">{viewingArticle.title}</h2>
+                </div>
+                <button 
+                  onClick={() => { setIsViewModalOpen(false); setViewingArticle(null); }} 
+                  className="p-2 text-white/50 hover:text-white rounded-full hover:bg-white/10 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              {/* Metadata in Header */}
+              <div className="flex items-center gap-4 text-xs text-white/70 mt-4 relative z-10 font-medium">
+                <div className="flex items-center gap-1">
+                  <Eye className="w-4 h-4" />
+                  <span>{viewingArticle.views_count || 0} views</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <ThumbsUp className="w-4 h-4" />
+                  <span>{viewingArticle.helpful_count || 0} helpful</span>
+                </div>
+                <span>Updated {new Date(viewingArticle.updated_at).toLocaleDateString()}</span>
+              </div>
+            </div>
+            
+            {/* Content Area with Scroller */}
+            <div className="p-6 space-y-6 overflow-y-auto max-h-[40vh] bg-slate-50/50">
+              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap font-medium">
+                  {viewingArticle.content || 'No content available for this article.'}
+                </div>
+              </div>
+              
+              {/* Tags as Cards */}
+              {viewingArticle.tags && (
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Associated Tags</h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {viewingArticle.tags.split(',').map((tag, i) => (
+                      <span key={i} className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/50 hover:bg-blue-50 hover:text-blue-600 transition-colors cursor-pointer">
+                        #{tag.trim()}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Footer */}
+            <div className="p-6 border-t border-slate-100 flex justify-end bg-white">
+              <button 
+                onClick={() => { setIsViewModalOpen(false); setViewingArticle(null); }}
+                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -53,9 +53,9 @@ const navigationConfig = [
   {
     name: 'Settings', icon: Wrench,
     children: [
-      { name: 'Workflows', href: '/workflows' },
-      { name: 'API Console', href: '/api-console' },
-      { name: 'Apps', href: '/apps' },
+      { name: 'Profile', href: '/profile' },
+      { name: 'Account', href: '/account' },
+      { name: 'Users', href: '/users' },
     ]
   },
 ];

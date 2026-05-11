@@ -129,8 +129,8 @@ export default function Invoices() {
       accessor: 'created_at',
       render: (row) => (
         <div className="flex flex-col">
-          <span className="text-sm text-slate-600">Issued: {dayjs(row.created_at).format('MMM D, YYYY')}</span>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Updated: {dayjs(row.updated_at).format('MMM D, YYYY')}</span>
+          <span className="text-sm text-slate-600">Issued: {dayjs(row.created_at).format('DD/MM/YYYY')}</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Updated: {dayjs(row.updated_at).format('DD/MM/YYYY')}</span>
         </div>
       )
     },
@@ -151,7 +151,7 @@ export default function Invoices() {
       accessor: 'amount',
       render: (row) => (
         <div className="text-right">
-          <div className="text-sm font-bold text-slate-900">${parseFloat(row.amount).toLocaleString()}</div>
+          <div className="text-sm font-bold text-slate-900">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(row.amount))}</div>
           <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Live Sync</div>
         </div>
       )
@@ -172,7 +172,7 @@ export default function Invoices() {
       header: 'Due Date', 
       accessor: 'due_date',
       render: (row) => (
-        <span className="text-sm text-slate-500">{row.due_date ? dayjs(row.due_date).format('MMM D, YYYY') : 'N/A'}</span>
+        <span className="text-sm text-slate-500">{row.due_date ? dayjs(row.due_date).format('DD/MM/YYYY') : 'N/A'}</span>
       )
     },
     {
@@ -233,10 +233,10 @@ export default function Invoices() {
       {/* Fiscal KPI Row (Dynamic) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
          {[
-           { label: 'Total Outstanding', value: `$${totalOutstanding.toLocaleString()}`, trend: 'Live', color: 'blue' },
-           { label: 'Fiscal Yield', value: `$${fiscalYield.toLocaleString()}`, trend: 'Live', color: 'emerald' },
+           { label: 'Total Outstanding', value: new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(totalOutstanding), trend: 'Live', color: 'blue' },
+           { label: 'Fiscal Yield', value: new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(fiscalYield), trend: 'Live', color: 'emerald' },
            { label: 'Average Aging', value: `${averageAging} Days`, trend: 'Live', color: 'emerald' },
-           { label: 'Overdue Protocol', value: `$${overdueProtocol.toLocaleString()}`, trend: 'Live', color: 'rose' }
+           { label: 'Overdue Protocol', value: new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(overdueProtocol), trend: 'Live', color: 'rose' }
          ].map((kpi, i) => (
            <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{kpi.label}</p>
@@ -301,7 +301,7 @@ export default function Invoices() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Financials</h4>
-                  <p className="text-xl font-bold text-slate-900">${parseFloat(selectedInvoice.amount).toLocaleString()}</p>
+                  <p className="text-xl font-bold text-slate-900">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(selectedInvoice.amount))}</p>
                   <p className="text-xs text-slate-500 mt-0.5 flex items-center">
                     <Clock className="w-3 h-3 mr-1" /> Due Date: {selectedInvoice.due_date ? dayjs(selectedInvoice.due_date).format('MMM D, YYYY') : 'N/A'}
                   </p>
@@ -332,20 +332,20 @@ export default function Invoices() {
                     <tbody className="divide-y divide-slate-200">
                       {selectedInvoice.line_items?.length > 0 ? (
                         selectedInvoice.line_items.map((item, idx) => (
-                          <tr key={idx}>
-                            <td className="px-4 py-2 text-sm text-slate-900">{item.product_name || `Item #${item.product}`}</td>
-                            <td className="px-4 py-2 text-sm text-slate-600 text-right">{item.quantity}</td>
-                            <td className="px-4 py-2 text-sm text-slate-600 text-right">${parseFloat(item.unit_price).toLocaleString()}</td>
-                            <td className="px-4 py-2 text-sm text-slate-900 text-right font-semibold">${parseFloat(item.line_total).toLocaleString()}</td>
-                          </tr>
+                           <tr key={idx}>
+                             <td className="px-4 py-2 text-sm text-slate-900">{item.product_name || `Item #${item.product}`}</td>
+                             <td className="px-4 py-2 text-sm text-slate-600 text-right">{item.quantity}</td>
+                             <td className="px-4 py-2 text-sm text-slate-600 text-right">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(item.unit_price))}</td>
+                             <td className="px-4 py-2 text-sm text-slate-900 text-right font-semibold">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(item.line_total))}</td>
+                           </tr>
                         ))
                       ) : (
-                        <tr>
-                          <td className="px-4 py-2 text-sm text-slate-900">Custom Project Service</td>
-                          <td className="px-4 py-2 text-sm text-slate-600 text-right">1</td>
-                          <td className="px-4 py-2 text-sm text-slate-600 text-right">${parseFloat(selectedInvoice.amount).toLocaleString()}</td>
-                          <td className="px-4 py-2 text-sm text-slate-900 text-right font-semibold">${parseFloat(selectedInvoice.amount).toLocaleString()}</td>
-                        </tr>
+                         <tr>
+                           <td className="px-4 py-2 text-sm text-slate-900">Custom Project Service</td>
+                           <td className="px-4 py-2 text-sm text-slate-600 text-right">1</td>
+                           <td className="px-4 py-2 text-sm text-slate-600 text-right">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(selectedInvoice.amount))}</td>
+                           <td className="px-4 py-2 text-sm text-slate-900 text-right font-semibold">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(selectedInvoice.amount))}</td>
+                         </tr>
                       )}
                     </tbody>
                   </table>
@@ -355,18 +355,18 @@ export default function Invoices() {
               {/* Pricing Summary */}
               <div className="border-t border-slate-100 pt-5 flex justify-end">
                 <div className="w-64 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Subtotal:</span>
-                    <span className="font-semibold text-slate-900">${parseFloat(selectedInvoice.amount).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Tax (GST 18%):</span>
-                    <span className="font-semibold text-slate-900">${(parseFloat(selectedInvoice.amount) * 0.18).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
-                    <span className="text-slate-900">Grand Total:</span>
-                    <span className="text-blue-600">${(parseFloat(selectedInvoice.amount) * 1.18).toLocaleString()}</span>
-                  </div>
+                   <div className="flex justify-between text-sm">
+                     <span className="text-slate-500">Subtotal:</span>
+                     <span className="font-semibold text-slate-900">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(selectedInvoice.amount))}</span>
+                   </div>
+                   <div className="flex justify-between text-sm">
+                     <span className="text-slate-500">Tax (GST 18%):</span>
+                     <span className="font-semibold text-slate-900">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(selectedInvoice.amount) * 0.18)}</span>
+                   </div>
+                   <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
+                     <span className="text-slate-900">Grand Total:</span>
+                     <span className="text-blue-600">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(selectedInvoice.amount) * 1.18)}</span>
+                   </div>
                 </div>
               </div>
 

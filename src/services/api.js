@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -9,7 +9,9 @@ const api = axios.create({
   },
 });
 
-// Interceptor for request: inject token
+
+
+// Interceptor for request: inject JWT token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
@@ -91,7 +93,7 @@ export const authService = {
   }
 };
 
-// Generic CRUD Generator
+// Generic CRUD Generator — baseURL is http://127.0.0.1:8000/api
 export const createResource = (endpoint) => ({
   getAll: async (params = {}, config = {}) => {
     const response = await api.get(`/${endpoint}/`, { params, ...config });
@@ -166,11 +168,21 @@ export const accountsApi = createResource('accounts');
 export const contactsApi = createResource('contacts');
 export const activitiesApi = createResource('activities');
 export const projectsApi = createResource('projects');
+export const milestonesApi = createResource('milestones');
 export const workflowsApi = createResource('workflows');
 export const workflowLogsApi = createResource('workflow-logs');
 export const quotesApi = createResource('quotes');
 export const invoicesApi = createResource('invoices');
 export const casesApi = createResource('cases');
+export const solutionsApi = createResource('solutions');
+export const servicesApi = createResource('services');
+export const feedbackApi = createResource('feedback');
+export const supportStatsApi = {
+  get: async () => {
+    const response = await api.get('/support/stats/');
+    return response.data;
+  }
+};
 export const usersApi = createResource('users');
 export const meetingsApi = createResource('meetings');
 export const productsApi = createResource('products');
@@ -219,14 +231,37 @@ export const emailsApi = {
 };
 
 export const analyticsApi = {
-  getDashboardStats: async () => {
-    const response = await api.get('/analytics/dashboard/');
+  getDashboardStats: async (params = {}) => {
+    const response = await api.get('/analytics/dashboard/', { params });
     return response.data;
   },
-  getTeamPerformance: async () => {
-    const response = await api.get('/analytics/team/');
+  getTeamPerformance: async (params = {}) => {
+    const response = await api.get('/analytics/team/', { params });
     return response.data;
   }
+};
+
+export const marketingApi = {
+  // Aggregate analytics
+  getAnalytics: async () => {
+    const response = await api.get('/marketing/analytics/');
+    return response.data;
+  },
+  // Campaign summary for overview dashboard
+  getCampaignSummary: async () => {
+    const response = await api.get('/campaigns/summary/');
+    return response.data;
+  },
+  // Per-campaign analytics
+  getCampaignAnalytics: async (id) => {
+    const response = await api.get(`/campaigns/${id}/analytics/`);
+    return response.data;
+  },
+  // Public lead capture (web form, landing page)
+  captureLead: async (data) => {
+    const response = await api.post('/marketing/capture-lead/', data);
+    return response.data;
+  },
 };
 
 export default api;

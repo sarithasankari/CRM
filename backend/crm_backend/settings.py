@@ -105,10 +105,20 @@ CHANNEL_LAYERS = {
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'crm',
+        'USER': 'root',
+        'PASSWORD': '12345',
+        'HOST': 'localhost',
+        'PORT': '3306',
+        'OPTIONS': {
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        }
     }
 }
+
+
+
 
 
 # Password validation
@@ -135,7 +145,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 
@@ -314,5 +324,14 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': 5 * 60,  # 5 minutes in seconds
         'options': {'expires': 4 * 60},
     },
+    # SLA Breach detection: run every 1 minute
+    'check-sla-breaches': {
+        'task': 'support.tasks.check_sla_breaches',
+        'schedule': 60,  # 1 minute in seconds
+    },
 }
+
+# Media files
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 

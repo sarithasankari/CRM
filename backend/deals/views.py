@@ -17,7 +17,23 @@ class DealViewSet(viewsets.ModelViewSet):
     search_fields = ['title']
     ordering_fields = ['created_at', 'value']
 
+    def create(self, request, *args, **kwargs):
+        from rest_framework.response import Response
+        lead_id = request.data.get('lead')
+        if lead_id:
+            from deals.models import Deal
+            existing_deal = Deal.objects.filter(lead_id=lead_id, is_active=True).first()
+            if existing_deal:
+                # Update existing deal instead of creating duplicate
+                serializer = self.get_serializer(existing_deal, data=request.data, partial=True)
+                serializer.is_valid(raise_exception=True)
+                self.perform_update(serializer)
+                return Response(serializer.data)
+        
+        return super().create(request, *args, **kwargs)
+
     def get_queryset(self):
+
         user = self.request.user
         if not user.is_authenticated:
             return Deal.objects.none()

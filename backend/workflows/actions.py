@@ -170,13 +170,25 @@ def create_task(action, instance, event):
         **links,
     }
 
-    # Use update_or_create to prevent duplicate open tasks for the same subject
-    task, created = Task.objects.update_or_create(
+    from tasks.services import TaskService
+    from leads.models import Lead
+    
+    lead = instance if isinstance(instance, Lead) else None
+    if not lead and hasattr(instance, 'lead'):
+        lead = instance.lead
+        
+    # Use service to create or get task
+    task, created = TaskService.create_task(
+        task_type=task_type,
         title=title,
-        is_active=True,
-        **_non_null_links(links),
-        defaults=task_defaults
+        lead=lead,
+        assigned_to=assignee,
+        priority=action.priority,
+        due_date=due_date,
+        **{k: v for k, v in task_defaults.items() if k not in ['task_type', 'title', 'lead', 'assigned_to', 'priority', 'due_date']}
     )
+
+
 
     # Capture for immediate UI feedback (Requirement 6)
     capture_task(task)
@@ -245,14 +257,18 @@ def update_record(action, instance, event):
         if not hasattr(target, field):
             # Try to handle common field name mapping issues or raise error
             raise ValueError(f"{target.__class__.__name__} has no field '{field}'.")
-        setattr(target, field, value)
-        changed.append(field)
+        
+        current_value = getattr(target, field)
+        # Convert to string for comparison to handle lazy objects or numbers
+        if str(current_value) != str(value):
+            setattr(target, field, value)
+            changed.append(field)
 
     if changed:
         save_fields = changed + ['updated_at'] if hasattr(target, 'updated_at') else changed
         target.save(update_fields=save_fields)
+        log_activity('update', f"Workflow updated {target.__class__.__name__} {', '.join(changed)}", target, _record_owner(target))
 
-    log_activity('update', f"Workflow updated {target.__class__.__name__} {', '.join(changed)}", target, _record_owner(target))
     
     message = f"Updated {target.__class__.__name__} {changed}"
     if target.__class__.__name__ == 'Task' and 'task_type' in updates and updates['task_type'] == 'proposal':

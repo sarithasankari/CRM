@@ -445,29 +445,32 @@ def execute_workflow_rules(task, chain_id=None):
                             target_type = action_cfg.get('task_type', 'todo')
                             target_title = action_cfg.get('title') or f"Follow-up: {task.title}"
                             
-                            # Idempotency check: same lead, same type, same title?
-                            existing = Task.objects.filter(
-                                lead=task.lead,
-                                task_type=target_type,
-                                title=target_title,
-                                is_active=True
-                            ).exists()
+                            from tasks.services import TaskService
+                            from django.utils import timezone
                             
-                            if not existing:
-                                from django.utils import timezone
-                                new_task = Task.objects.create(
-                                    lead=task.lead,
+                            due_date = timezone.now() + timedelta(days=action_cfg.get('due_in_days', 1))
+                            
+                            try:
+                                new_task, created = TaskService.create_task(
                                     task_type=target_type,
                                     title=target_title,
-                                    priority=action_cfg.get('priority', 'medium'),
-                                    due_date=timezone.now() + timedelta(days=action_cfg.get('due_in_days', 1)),
+                                    lead=task.lead,
                                     assigned_to=task.assigned_to,
+                                    priority=action_cfg.get('priority', 'medium'),
+                                    due_date=due_date,
                                     status='not_started'
                                 )
-                                action_message = f"Created task {new_task.id} ({target_type})"
-                            else:
-                                action_status = 'skipped'
-                                action_message = f"Skipped duplicate task: {target_title}"
+                                
+                                if created:
+                                    action_message = f"Created task {new_task.id} ({target_type})"
+                                else:
+                                    action_message = f"Found existing task {new_task.id} ({target_type}). Skipping creation."
+                            except Exception as exc:
+                                action_status = 'failure'
+                                action_message = str(exc)
+                                logger.error(f"[WorkflowRule] Failed to create task: {exc}")
+
+
                         
                         actions_taken.append(action_message)
                         

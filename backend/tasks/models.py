@@ -9,11 +9,15 @@ class Task(models.Model):
     TYPE_CHOICES = (
         ('call', 'Call 📞'),
         ('meeting', 'Meeting 🧑💼'),
+        ('discovery_meeting', 'Discovery Meeting'),
+        ('demo_meeting', 'Demo Meeting'),
+        ('proposal_meeting', 'Proposal Meeting'),
         ('follow_up', 'Follow-Up'),
         ('proposal', 'Proposal'),
         ('todo', 'To-Do'),
         ('email', 'Email'),
     )
+
 
     STATUS_CHOICES = (
         ('pending', 'Pending'),          # backend-generated initial state
@@ -56,6 +60,9 @@ class Task(models.Model):
     contact = models.ForeignKey('contacts.Contact', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
     account = models.ForeignKey('contacts.Account', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
     deal = models.ForeignKey('deals.Deal', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
+    campaign = models.ForeignKey('activities.Campaign', on_delete=models.SET_NULL, null=True, blank=True, related_name='tasks')
+    project = models.ForeignKey('projects.Project', on_delete=models.CASCADE, null=True, blank=True, related_name='tasks')
+    milestone = models.ForeignKey('projects.Milestone', on_delete=models.CASCADE, null=True, blank=True, related_name='tasks')
     
     task_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='todo')
     title = models.CharField(max_length=255)
@@ -86,8 +93,24 @@ class Task(models.Model):
     next_action = models.CharField(max_length=255, blank=True, null=True)
     steps = models.JSONField(default=dict, blank=True, null=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lead", "task_type"],
+                condition=models.Q(is_active=True),
+                name="unique_active_task_per_stage_per_lead"
+            )
+        ]
+
     def save(self, *args, **kwargs):
+        # Enforce: lead is mandatory for all meeting-related tasks
+        meeting_types = ['meeting', 'discovery_meeting', 'demo_meeting', 'proposal_meeting']
+        if self.task_type in meeting_types and not self.lead:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("A lead is mandatory for all meeting-related tasks.")
+
         # 1. Enforce: status = completed → is_active = False, completed_at = now()
+
         if self.status == 'completed':
             self.is_active = False
             if not self.completed_at:

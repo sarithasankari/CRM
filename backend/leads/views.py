@@ -22,7 +22,41 @@ class LeadViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'email', 'company']
     ordering_fields = ['created_at', 'updated_at']
 
+    def create(self, request, *args, **kwargs):
+        email = request.data.get('email')
+        name = request.data.get('name')
+        company = request.data.get('company')
+        phone = request.data.get('phone')
+        
+        existing_lead = None
+        
+        # 1. Check by Email
+        if email:
+            existing_lead = Lead.objects.filter(email=email, is_deleted=False).first()
+        
+        # 2. Check by Phone (via linked Contact)
+        if not existing_lead and phone:
+            from contacts.models import Contact
+            contact = Contact.objects.filter(phone=phone).first()
+            if contact:
+                existing_lead = Lead.objects.filter(contact=contact, is_deleted=False).first()
+                
+        # 3. Check by Company + Name
+        if not existing_lead and company and name:
+            existing_lead = Lead.objects.filter(company=company, name=name, is_deleted=False).first()
+            
+        if existing_lead:
+            # Update existing lead instead of creating duplicate
+            serializer = self.get_serializer(existing_lead, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return Response(serializer.data)
+            
+        return super().create(request, *args, **kwargs)
+
+
     def get_queryset(self):
+
         user = self.request.user
         if not user.is_authenticated:
             return Lead.objects.none()

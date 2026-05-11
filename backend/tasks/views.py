@@ -33,7 +33,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     """
     serializer_class = TaskSerializer
     permission_classes = [RoleBasedAccessPermission]
-    filterset_fields = ['status', 'priority', 'task_type', 'source_object_id', 'is_active', 'lead']
+    filterset_fields = ['status', 'priority', 'task_type', 'source_object_id', 'is_active', 'lead', 'project', 'milestone']
     search_fields = ['title', 'description']
     ordering_fields = ['created_at', 'due_date', 'priority']
 
@@ -65,41 +65,44 @@ class TaskViewSet(viewsets.ModelViewSet):
     # ------------------------------------------------------------------
 
     def create(self, request, *args, **kwargs):
-        lead_id = request.data.get('lead')
-        title = request.data.get('title')
-        task_type = request.data.get('task_type', 'follow_up')
-
-        # Deduplication: one active task per lead+task_type
-        existing_task = None
-        if lead_id:
-            existing_task = Task.objects.filter(
-                lead_id=lead_id,
+        from tasks.services import TaskService
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        lead = data.get('lead')
+        task_type = data.get('task_type', 'follow_up')
+        title = data.get('title')
+        
+        try:
+            # Use service to create or get task
+            task, created = TaskService.create_task(
                 task_type=task_type,
-                is_active=True,
-            ).first()
-        elif title:
-            existing_task = Task.objects.filter(
-                title__iexact=title,
-                assigned_to=request.user,
-                is_active=True,
-            ).first()
-
-        if existing_task:
-            # Update (but DO NOT blindly flip to in_progress)
-            update_data = {k: v for k, v in request.data.items()}
-            update_data.pop('status', None)  # preserve current status unless explicit
-
-            serializer = self.get_serializer(existing_task, data=update_data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            existing_task._current_user = request.user
-            serializer.save()
-            self._log_activity('update', f"Task re-triggered: {existing_task.title}", lead_id, request.user)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        response = super().create(request, *args, **kwargs)
-        if lead_id and title:
-            self._log_activity('created', f"Task created: {title}", lead_id, request.user)
-        return response
+                title=title,
+                lead=lead,
+                assigned_to=data.get('assigned_to') or request.user,
+                priority=data.get('priority', 'medium'),
+                due_date=data.get('due_date'),
+                **{k: v for k, v in data.items() if k not in ['lead', 'task_type', 'title', 'assigned_to', 'priority', 'due_date']}
+            )
+            
+            if not created:
+                # Task already existed, return it
+                serializer = self.get_serializer(task)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+                
+            if lead and title:
+                self._log_activity('created', f"Task created: {title}", lead.id, request.user)
+                
+            serializer = self.get_serializer(task)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            from django.core.exceptions import ValidationError
+            if isinstance(e, ValidationError):
+                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def perform_create(self, serializer):
         user = self.request.user

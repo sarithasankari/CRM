@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   FolderKanban, Plus, CheckSquare, Clock, Users, Search, X, 
   Loader2, AlertCircle, Trash2, Calendar, Target,
-  ChevronRight, BarChart3, Layers, Filter
+  ChevronRight, BarChart3, Layers, Filter, List, Grid, Edit2
 } from 'lucide-react';
-import { projectsApi } from '../services/api';
+import { projectsApi, accountsApi, dealsApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 
 export default function Projects() {
@@ -15,8 +16,37 @@ export default function Projects() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { addToast } = useToast();
+  const navigate = useNavigate();
   
-  const [formData, setFormData] = useState({ name: '', description: '', status: 'Planning', start_date: '', end_date: '' });
+  const [formData, setFormData] = useState({ name: '', description: '', status: 'planned', start_date: '', end_date: '', account: '', deal: '', budget: '' });
+  const [viewMode, setViewMode] = useState('list');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [accounts, setAccounts] = useState([]);
+  const [deals, setDeals] = useState([]);
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setIsEditMode(false);
+    setFormData({ name: '', description: '', status: 'planned', start_date: '', end_date: '', account: '', deal: '', budget: '' });
+    setCurrentProjectId(null);
+  };
+
+  const handleEditClick = (project) => {
+    setFormData({
+      name: project.name || '',
+      description: project.description || '',
+      status: project.status || 'planned',
+      start_date: project.start_date || '',
+      end_date: project.end_date || '',
+      account: project.account || '',
+      deal: project.deal || '',
+      budget: project.budget || ''
+    });
+    setCurrentProjectId(project.id);
+    setIsEditMode(true);
+    setIsModalOpen(true);
+  };
 
   const fetchProjects = async () => {
     setIsLoading(true);
@@ -32,19 +62,45 @@ export default function Projects() {
 
   useEffect(() => {
     fetchProjects();
+    
+    // Fetch accounts and deals for dropdowns
+    const fetchDropdownData = async () => {
+      try {
+        const accountsData = await accountsApi.getAll();
+        setAccounts(accountsData.results || accountsData);
+        
+        const dealsData = await dealsApi.getAll();
+        setDeals(dealsData.results || dealsData);
+      } catch (err) {
+        console.error("Failed to fetch dropdown data:", err);
+      }
+    };
+    fetchDropdownData();
   }, []);
 
-  const handleAddProject = async (e) => {
+  const handleSaveProject = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await projectsApi.create(formData);
-      addToast("Project initialized");
-      setIsModalOpen(false);
-      setFormData({ name: '', description: '', status: 'Planning', start_date: '', end_date: '' });
+      const dataToSubmit = { ...formData };
+      if (dataToSubmit.start_date === '') dataToSubmit.start_date = null;
+      if (dataToSubmit.end_date === '') dataToSubmit.end_date = null;
+      if (dataToSubmit.account === '') dataToSubmit.account = null;
+      if (dataToSubmit.deal === '') dataToSubmit.deal = null;
+      if (dataToSubmit.budget === '') dataToSubmit.budget = null;
+
+      if (isEditMode) {
+        await projectsApi.update(currentProjectId, dataToSubmit);
+        addToast("Project updated");
+      } else {
+        await projectsApi.create(dataToSubmit);
+        addToast("Project initialized");
+      }
+      closeModal();
       fetchProjects();
     } catch (err) {
-      addToast("Initialization failed", "error");
+      console.error("Project save failed:", err.response?.data || err);
+      addToast("Save failed", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -90,6 +146,20 @@ export default function Projects() {
           <button className="p-2.5 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
             <Filter className="w-4 h-4" />
           </button>
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={() => setViewMode('grid')}
+              className={`p-2.5 rounded-xl transition-all ${viewMode === 'grid' ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            >
+              <Grid className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setViewMode('list')}
+              className={`p-2.5 rounded-xl transition-all ${viewMode === 'list' ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
           <button 
             onClick={() => setIsModalOpen(true)}
             className="inline-flex items-center px-6 py-2.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
@@ -125,7 +195,7 @@ export default function Projects() {
               <h3 className="text-xl font-black text-slate-900">No Active Objectives</h3>
               <p className="text-slate-500 mt-2 font-medium">Initialize your first project to begin tracking milestones.</p>
            </div>
-        ) : (
+        ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {filteredProjects.map((project) => (
               <div key={project.id} className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 p-8 hover:shadow-2xl hover:shadow-slate-200/60 transition-all group relative overflow-hidden flex flex-col">
@@ -141,9 +211,14 @@ export default function Projects() {
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 block">{project.status} Phase</span>
                     </div>
                   </div>
-                  <button onClick={() => handleDelete(project.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+                  <div className="flex items-center space-x-1">
+                    <button onClick={() => handleEditClick(project)} className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all">
+                      <Edit2 className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => handleDelete(project.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
                 
                 <p className="text-sm font-medium text-slate-500 mb-8 line-clamp-3 leading-relaxed flex-grow">
@@ -169,7 +244,10 @@ export default function Projects() {
                   </div>
 
                   <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
-                    <button className="text-[11px] font-black text-blue-600 uppercase tracking-widest hover:underline flex items-center">
+                    <button 
+                      onClick={() => navigate(`/projects/${project.id}`)}
+                      className="text-[11px] font-black text-blue-600 uppercase tracking-widest hover:underline flex items-center"
+                    >
                        Launch Project Space <ChevronRight className="w-4 h-4 ml-1" />
                     </button>
                     <BarChart3 className="w-5 h-5 text-slate-200" />
@@ -178,56 +256,155 @@ export default function Projects() {
               </div>
             ))}
           </div>
+        ) : (
+          <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left text-slate-500">
+                <thead className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-6 py-4">Project Name</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Start Date</th>
+                    <th className="px-6 py-4">End Date</th>
+                    <th className="px-6 py-4">Account</th>
+                    <th className="px-6 py-4">Deal</th>
+                    <th className="px-6 py-4">Budget</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {filteredProjects.map(project => (
+                    <tr key={project.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 text-slate-900 font-bold">
+                        <button onClick={() => navigate(`/projects/${project.id}`)} className="hover:text-blue-600 transition-colors">
+                          {project.name}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-widest ${
+                          project.status === 'completed' ? 'bg-emerald-50 text-emerald-600' :
+                          project.status === 'in_progress' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {project.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-xs font-bold text-slate-400">
+                        {project.start_date || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-xs font-bold text-slate-400">
+                        {project.end_date || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-xs font-bold text-slate-400">
+                        {project.account_display || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-xs font-bold text-slate-400">
+                        {project.deal_display || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-xs font-bold text-slate-400">
+                        {project.budget ? `$${project.budget}` : 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button onClick={() => handleEditClick(project)} className="text-slate-400 hover:text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg transition-colors mr-2">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDelete(project.id)} className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </div>
 
       {/* Establishment Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setIsModalOpen(false)} />
-          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
-            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={closeModal} />
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
+            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between flex-shrink-0">
               <div>
-                <h3 className="text-2xl font-black text-slate-900">New Project Registry</h3>
+                <h3 className="text-2xl font-black text-slate-900">{isEditMode ? 'Edit Project' : 'New Project Registry'}</h3>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Lifecycle Strategy Initialization</p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all">
+              <button onClick={closeModal} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all">
                 <X className="h-5 w-5" />
               </button>
             </div>
             
-            <form onSubmit={handleAddProject} className="p-8 space-y-6">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Project Designation *</label>
-                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="input-field" placeholder="e.g. Q4 Growth Initiative" />
-              </div>
-              
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Strategic Scope</label>
-                <textarea rows="3" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="input-field py-4 resize-none" placeholder="Comprehensive project description..." />
+            <form onSubmit={handleSaveProject} className="flex flex-col flex-grow overflow-hidden">
+              {/* Scrollable Content */}
+              <div className="p-8 space-y-6 overflow-y-auto flex-grow">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Project Designation *</label>
+                  <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="input-field" placeholder="e.g. Q4 Growth Initiative" />
+                </div>
+                
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Strategic Scope</label>
+                  <textarea rows="3" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="input-field py-4 resize-none" placeholder="Comprehensive project description..." />
+                </div>
+
+                <div className="grid grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Lifecycle Phase</label>
+                    <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="input-field appearance-none bg-white">
+                      <option value="planned">Planned</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="review">Review</option>
+                      <option value="completed">Completed</option>
+                      <option value="on_hold">On Hold</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
+                    <input type="date" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} className="input-field" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">End Date</label>
+                    <input type="date" value={formData.end_date} onChange={e => setFormData({...formData, end_date: e.target.value})} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Budget</label>
+                    <input type="number" value={formData.budget} onChange={e => setFormData({...formData, budget: e.target.value})} className="input-field" placeholder="e.g. 5000" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Account</label>
+                    <select value={formData.account} onChange={e => setFormData({...formData, account: e.target.value})} className="input-field appearance-none bg-white">
+                      <option value="">Select Account</option>
+                      {accounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>{acc.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Deal</label>
+                    <select value={formData.deal} onChange={e => setFormData({...formData, deal: e.target.value})} className="input-field appearance-none bg-white">
+                      <option value="">Select Deal</option>
+                      {deals.map(deal => (
+                        <option key={deal.id} value={deal.id}>{deal.title || deal.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Lifecycle Phase</label>
-                  <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="input-field appearance-none bg-white">
-                    <option>Planning</option>
-                    <option>Active</option>
-                    <option>Completed</option>
-                    <option>On Hold</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Sync Date</label>
-                  <input type="date" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} className="input-field" />
-                </div>
-              </div>
-
-              <div className="pt-8 mt-4 border-t border-slate-50 flex justify-end space-x-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
+              {/* Fixed Footer */}
+              <div className="px-8 py-6 border-t border-slate-50 flex justify-end space-x-3 bg-white flex-shrink-0">
+                <button type="button" onClick={closeModal} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
                 <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
                   {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-3"/>}
-                  Confirm & Initialize
+                  {isEditMode ? 'Save Changes' : 'Confirm & Initialize'}
                 </button>
               </div>
             </form>

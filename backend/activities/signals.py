@@ -1,93 +1,134 @@
-import json
-from django.db.models.signals import post_save, post_delete
+import logging
+from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.db.models import F
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from django.forms.models import model_to_dict
-
-from leads.models import Lead
-from deals.models import Deal
-from contacts.models import Contact
-from tasks.models import Task
-from .models import AuditLog, Meeting, Call
-import logging
 
 logger = logging.getLogger(__name__)
 
-def broadcast_update(message):
+
+def broadcast_marketing_update(event_type, data):
+    """Utility to broadcast marketing events to all connected clients."""
     channel_layer = get_channel_layer()
     if channel_layer:
-        from django.db import transaction
-        transaction.on_commit(lambda: async_to_sync(channel_layer.group_send)(
-            'global_notifications',
-            {
-                'type': 'send_notification',
-                'message': message
-            }
-        ))
+        try:
+            async_to_sync(channel_layer.group_send)(
+                'global_notifications',
+                {
+                    'type': 'send_notification',
+                    'message': {
+                        'module': 'marketing',
+                        'event': event_type,
+                        **data
+                    }
+                }
+            )
+        except Exception as e:
+            logger.error(f"[MarketingSignals] Broadcast failed: {e}")
 
-def log_and_broadcast(sender, instance, created, **kwargs):
-    action = 'create' if created else 'update'
-    model_name = sender.__name__
-    
-    # Try to safely get changes
-    changes = {}
+
+@receiver(post_save, sender='leads.Lead')
+def on_lead_created_from_campaign(sender, instance, created, **kwargs):
+    """
+    When a Lead is created with a campaign FK:
+    1. Increment campaign.leads_generated counter
+    2. Auto-create 'Initial Contact' follow-up task
+    3. Log activity
+    4. Broadcast websocket event
+    """
+    if not created:
+        return
+
+    from activities.models import Campaign
+    from tasks.models import Task
+    from activities.models import Activity
+
+    # attribution data for broadcast
+    broadcast_data = {
+        'lead_id': instance.pk,
+        'name': instance.name or "New Lead",
+        'source': instance.source,
+        'campaign_id': instance.campaign_id,
+        'campaign_name': instance.campaign.name if instance.campaign else None
+    }
+
+    if instance.campaign_id:
+        # 1. Increment leads_generated atomically
+        Campaign.objects.filter(pk=instance.campaign_id).update(
+            leads_generated=F('leads_generated') + 1
+        )
+        
+        # 2. Auto-create follow-up task
+        try:
+            Task.objects.get_or_create(
+                lead=instance,
+                task_type='follow_up',
+                is_active=True,
+                defaults={
+                    'title': f'Initial Contact — {instance.name or instance.email or "New Lead"}',
+                    'priority': 'high',
+                    'status': 'not_started',
+                    'assigned_to': instance.assigned_to,
+                    'campaign': instance.campaign,
+                    'description': f'Auto-generated from campaign: {instance.campaign.name}.',
+                }
+            )
+        except Exception as e:
+            logger.error(f"[Marketing] Task creation failed: {e}")
+
+    # 3. Log activity
     try:
-        changes = model_to_dict(instance)
-        # remove un-serializable fields if necessary, or just stringify
-        for k, v in changes.items():
-            changes[k] = str(v)
-    except Exception:
-        pass
+        Activity.objects.create(
+            type='note',
+            notes=f'Lead created via {instance.source or "direct"}. Linked to campaign: {instance.campaign.name if instance.campaign else "None"}',
+            created_by=instance.assigned_to,
+        )
+    except: pass
 
-    # Create Audit Log
-    # In a real app we'd get the user from thread locals. We'll leave it blank or assigned if available.
-    user = getattr(instance, 'assigned_to', None) or getattr(instance, 'created_by', None)
-    
-    AuditLog.objects.create(
-        user=user,
-        action=action,
-        model_name=model_name,
-        object_id=str(instance.pk),
-        changes=changes
-    )
+    # 4. Broadcast realtime update
+    broadcast_marketing_update('lead_captured', broadcast_data)
 
-    title = getattr(instance, 'title', getattr(instance, 'name', str(instance)))
-    
-    broadcast_update({
-        'action': action,
-        'model': model_name,
-        'id': instance.pk,
-        'title': f"{model_name} {action}d: {title}"
-    })
 
-@receiver(post_save, sender=Lead)
-@receiver(post_save, sender=Deal)
-@receiver(post_save, sender=Contact)
-@receiver(post_save, sender=Task)
-@receiver(post_save, sender=Meeting)
-@receiver(post_save, sender=Call)
-def handle_post_save(sender, instance, created, **kwargs):
+@receiver(post_save, sender='deals.Deal')
+def on_deal_status_change(sender, instance, created, **kwargs):
     """
-    Generic post-save handler for auditing and real-time broadcasts.
-    Automation logic should be handled by the Workflow Engine or specific views.
+    When a Deal linked to a campaign is won:
+    Update campaign revenue and broadcast.
     """
-    log_and_broadcast(sender, instance, created, **kwargs)
+    if not instance.campaign_id:
+        return
+
+    update_fields = kwargs.get('update_fields')
+    if update_fields is not None and 'status' not in update_fields:
+        return
+
+    if instance.status != 'won':
+        return
+
+    from activities.models import Campaign, Activity
+
+    try:
+        updated = Campaign.objects.filter(pk=instance.campaign_id).update(
+            actual_revenue=F('actual_revenue') + instance.value,
+            converted_deals=F('converted_deals') + 1
+        )
+        if updated:
+            broadcast_marketing_update('deal_won', {
+                'deal_id': instance.pk,
+                'campaign_id': instance.campaign_id,
+                'revenue': float(instance.value)
+            })
+    except Exception as e:
+        logger.error(f"[Marketing] Campaign revenue update failed: {e}")
 
 
-@receiver(post_delete, sender=Lead)
-@receiver(post_delete, sender=Deal)
-@receiver(post_delete, sender=Contact)
-@receiver(post_delete, sender=Task)
-@receiver(post_delete, sender=Meeting)
-@receiver(post_delete, sender=Call)
-def handle_post_delete(sender, instance, **kwargs):
-    model_name = sender.__name__
-    title = getattr(instance, 'title', getattr(instance, 'name', str(instance)))
-    
-    broadcast_update({
-        'action': 'delete',
-        'model': model_name,
-        'id': instance.pk,
-        'title': f"{model_name} deleted: {title}"
+@receiver(post_save, sender='activities.Campaign')
+def on_campaign_update(sender, instance, created, **kwargs):
+    """Broadcast when a campaign is created or modified to refresh dashboards."""
+    broadcast_marketing_update('campaign_updated', {
+        'campaign_id': instance.pk,
+        'name': instance.name,
+        'status': instance.status,
+        'is_new': created
     })
