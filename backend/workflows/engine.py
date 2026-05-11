@@ -399,6 +399,99 @@ def execute_workflow_rules(task, chain_id=None):
             task.lead.save(update_fields=['deal_required', 'deal_required_at'])
             actions_taken.append("Marked Deal Required on Lead")
 
+    # Special case for no_response
+    if task.task_type == 'call' and task.outcome == 'no_response' and task.lead:
+        from tasks.models import Task
+        from django.utils import timezone
+        
+        # Count previous failed calls
+        retry_count = Task.objects.filter(
+            lead=task.lead, 
+            task_type='call', 
+            outcome='no_response',
+            status='completed'
+        ).count()
+        
+        # Update lead status
+        task.lead.status = 'follow_up_pending'
+        
+        delay_days = 0
+        if retry_count == 1:
+            delay_days = 1
+        elif retry_count == 2:
+            delay_days = 3
+        elif retry_count == 3:
+            delay_days = 7
+        elif retry_count >= 4:
+            task.lead.status = 'unreachable'
+            task.lead.save(update_fields=['status'])
+            actions_taken.append(f"Marked Lead as Unreachable (Retry count: {retry_count})")
+            return actions_taken
+            
+        task.lead.save(update_fields=['status'])
+        
+        if delay_days > 0:
+            from tasks.services import TaskService
+            due_date = timezone.now() + timedelta(days=delay_days)
+            
+            # Ensure only ONE active retry task allowed per lead
+            Task.objects.filter(
+                lead=task.lead,
+                task_type='call',
+                status='not_started'
+            ).update(status='completed', outcome='follow_up', is_active=False)
+            
+            new_task, created = TaskService.create_task(
+                task_type='call',
+                title=f"Retry Call (Attempt {retry_count + 1})",
+                lead=task.lead,
+                assigned_to=task.assigned_to,
+                priority='medium',
+                due_date=due_date,
+                status='not_started'
+            )
+            actions_taken.append(f"Created retry call task in {delay_days} days")
+
+    # Special case for not_interested
+    if task.task_type == 'call' and task.outcome == 'not_interested' and task.lead:
+        from tasks.models import Task
+        
+        # Update lead status
+        task.lead.status = 'closed_lost'
+        task.lead.save(update_fields=['status'])
+        
+        # Close all pending follow-up tasks
+        Task.objects.filter(
+            lead=task.lead,
+            status='not_started'
+        ).update(status='completed', outcome='canceled', is_active=False)
+        
+        actions_taken.append("Marked Lead as Closed Lost and cancelled pending tasks")
+
+    # Special case for callback_later
+    if task.task_type == 'call' and task.outcome == 'callback_later' and task.lead:
+        from tasks.models import Task
+        from tasks.services import TaskService
+        from django.utils import timezone
+        
+        # Update lead status
+        task.lead.status = 'callback_scheduled'
+        task.lead.save(update_fields=['status'])
+        
+        # Create callback task (default to 1 day later)
+        due_date = timezone.now() + timedelta(days=1)
+        
+        new_task, created = TaskService.create_task(
+            task_type='call',
+            title=f"Callback: {task.lead.name}",
+            lead=task.lead,
+            assigned_to=task.assigned_to,
+            priority='high',
+            due_date=due_date,
+            status='not_started'
+        )
+        actions_taken.append("Marked Lead as Callback Scheduled and created task")
+
     # 2. Process Rules
     for rule in rules:
         try:
