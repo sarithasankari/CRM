@@ -1,6 +1,14 @@
 from rest_framework import serializers
-from .models import Invoice
-from quotes.serializers import QuoteLineItemSerializer
+from .models import Invoice, InvoiceLineItem
+
+
+class InvoiceLineItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    line_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = InvoiceLineItem
+        fields = ['id', 'product', 'product_name', 'quantity', 'unit_price', 'discount', 'tax_percent', 'line_total']
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
@@ -8,8 +16,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     quote_number = serializers.CharField(source='quote.quote_number', read_only=True, allow_null=True)
     deal_title = serializers.CharField(source='quote.deal.title', read_only=True, allow_null=True)
     customer_name = serializers.SerializerMethodField()
-    amount = serializers.SerializerMethodField()
-    line_items = serializers.SerializerMethodField()
+    line_items = InvoiceLineItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = Invoice
@@ -25,14 +32,3 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if obj.quote and obj.quote.deal and obj.quote.deal.contact:
             return f"{obj.quote.deal.contact.first_name} {obj.quote.deal.contact.last_name}".strip()
         return "N/A"
-
-    def get_amount(self, obj):
-        if obj.quote:
-            return obj.quote.amount
-        return obj.amount
-
-    def get_line_items(self, obj):
-        if obj.quote:
-            serializer = QuoteLineItemSerializer(obj.quote.line_items.all(), many=True)
-            return serializer.data
-        return []

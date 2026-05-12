@@ -16,6 +16,9 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+from dotenv import load_dotenv
+load_dotenv(BASE_DIR.parent / '.env')
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -60,6 +63,7 @@ INSTALLED_APPS = [
     'invoices',
     'support',
     'calls',
+    'emails',
 ]
 
 MIDDLEWARE = [
@@ -328,6 +332,11 @@ CELERY_BEAT_SCHEDULE = {
     'check-sla-breaches': {
         'task': 'support.tasks.check_sla_breaches',
         'schedule': 60,  # 1 minute in seconds
+    },
+    # Check for unopened emails every day
+    'check-unopened-emails': {
+        'task': 'emails.tasks.check_unopened_emails',
+        'schedule': crontab(hour=0, minute=0),  # Run daily at midnight
     },
 }
 

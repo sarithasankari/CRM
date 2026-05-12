@@ -3,14 +3,16 @@ import {
   FileText, Plus, Search, Download, CreditCard, 
   Clock, AlertCircle, Loader2, Filter, ChevronRight,
   DollarSign, ArrowUpRight, ArrowDownRight, Printer,
-  User, Briefcase, Trash2, Eye, XCircle
+  User, Briefcase, Trash2, Eye, XCircle, Send, CheckCircle
 } from 'lucide-react';
 import { invoicesApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import Table from '../components/Table';
 import dayjs from 'dayjs';
+import { useAuth } from '../context/AuthContext';
 
 export default function Invoices() {
+  const { can } = useAuth();
   const [invoices, setInvoices] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -34,7 +36,25 @@ export default function Invoices() {
     fetchInvoices();
   }, []);
 
+  const handleSendInvoice = async (invoice) => {
+    try {
+      await invoicesApi.sendInvoice(invoice.id);
+      addToast('Invoice marked as sent!', 'success');
+      fetchInvoices();
+    } catch (err) {
+      addToast('Failed to send invoice', 'error');
+    }
+  };
 
+  const handleMarkPaid = async (invoice) => {
+    try {
+      await invoicesApi.markPaid(invoice.id);
+      addToast('Invoice marked as paid!', 'success');
+      fetchInvoices();
+    } catch (err) {
+      addToast('Failed to mark invoice as paid', 'error');
+    }
+  };
 
   const filteredInvoices = invoices.filter(inv => 
     (inv.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -187,10 +207,30 @@ export default function Invoices() {
           >
             <Eye className="w-4 h-4" />
           </button>
+          
+          {row.status === 'draft' && can('invoice.send') && (
+            <button 
+              onClick={() => handleSendInvoice(row)}
+              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" 
+              title="Send Invoice"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          )}
+          
+          {(row.status === 'sent' || row.status === 'overdue') && can('invoice.mark_paid') && (
+            <button 
+              onClick={() => handleMarkPaid(row)}
+              className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" 
+              title="Mark as Paid"
+            >
+              <CheckCircle className="w-4 h-4" />
+            </button>
+          )}
+
           <button className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Download PDF">
             <Download className="w-4 h-4" />
           </button>
-
         </div>
       )
     }

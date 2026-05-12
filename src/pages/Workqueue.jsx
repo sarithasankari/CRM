@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastContext';
 export default function Workqueue() {
   const [filter, setFilter] = useState('All');
   const [tasks, setTasks] = useState([]);
+  const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const { addToast } = useToast();
 
@@ -26,7 +27,7 @@ export default function Workqueue() {
           id: t.id,
           type: t.priority === 'high' || t.priority === 'urgent' ? 'Critical' : 'Operational',
           title: t.title,
-          relatedTo: t.description || 'System Protocol',
+          relatedTo: t.lead_name || t.description || 'System Protocol',
           priority: t.priority || 'medium',
           dueDate: t.due_date ? new Date(t.due_date).toLocaleDateString() : 'No Registry',
           status: isOverdue ? 'Overdue' : isToday ? 'Today' : 'Upcoming',
@@ -72,7 +73,12 @@ export default function Workqueue() {
     }
   };
 
-  const filteredTasks = tasks.filter(task => filter === 'All' || task.status === filter);
+  const filteredTasks = tasks.filter(task => {
+    const matchesFilter = filter === 'All' || task.status === filter;
+    const matchesSearch = task.title.toLowerCase().includes(search.toLowerCase()) || 
+                          task.relatedTo.toLowerCase().includes(search.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
 
   const markComplete = async (id) => {
     try {
@@ -103,6 +109,8 @@ export default function Workqueue() {
             <input 
               type="text" 
               placeholder="Search active protocols..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
               className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all shadow-sm"
             />
           </div>

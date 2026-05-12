@@ -15,6 +15,12 @@ const OUTCOME_OPTIONS = [
   { value: 'not_interested',  label: 'Not Interested',        color: 'rose',    icon: '🔴', nextAction: 'Mark Lead as Lost' },
 ];
 
+const OUTCOME_COLORS = {
+  connected: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+  no_response: 'bg-amber-50 text-amber-600 border-amber-100',
+  not_interested: 'bg-rose-50 text-rose-600 border-rose-100',
+};
+
 
 const PRIORITY_STYLES = {
   high:   'bg-rose-50 text-rose-600 border-rose-200',
@@ -67,6 +73,7 @@ export default function Calls() {
   const [submittingOutcome, setSubmittingOutcome]     = useState(null);
   const [activityLog, setActivityLog]   = useState([]);
   const [logTaskId, setLogTaskId]       = useState(null);
+  const [notes, setNotes]               = useState('');
   const timer = useCallTimer();
   const { addToast } = useToast();
   const justCompletedTaskIdRef = useRef(null);
@@ -119,6 +126,7 @@ export default function Calls() {
 
   const handleEndCall = (task) => {
     timer.stop();
+    setNotes('');
     setOutcomeModal(task);
   };
 
@@ -136,7 +144,7 @@ export default function Calls() {
     }, 10000);
 
     try {
-      const res = await tasksApi.completeTask(task.id, { outcome });
+      const res = await tasksApi.completeTask(task.id, { outcome, notes });
       justCompletedTaskIdRef.current = String(task.id);
       addToast(`Task completed — ${outcome}`);
       
@@ -423,7 +431,7 @@ export default function Calls() {
                           </button>
                         </div>
                         <div>
-                          <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-100">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${OUTCOME_COLORS[task.outcome] || 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
                             {task.outcome?.replace('_', ' ') || 'Completed'}
                           </span>
                         </div>
@@ -480,6 +488,14 @@ export default function Calls() {
               </button>
             </div>
             <div className="p-8">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Notes:</p>
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Enter call notes here..."
+                className="w-full p-3 border border-slate-200 rounded-xl mb-4 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none resize-none"
+                rows={3}
+              />
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Select call outcome:</p>
               <div className="grid grid-cols-1 gap-3">
                 {OUTCOME_OPTIONS.map(opt => (

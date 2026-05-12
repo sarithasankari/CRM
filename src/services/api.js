@@ -90,7 +90,26 @@ export const authService = {
   getCurrentUser: async () => {
     const response = await api.get('/auth/me/');
     return response.data;
+  },
+  updateProfile: async (data) => {
+    const response = await api.patch('/auth/me/', data);
+    return response.data;
+  },
+  changePassword: async (data) => {
+    const response = await api.post('/auth/change-password/', data);
+    return response.data;
   }
+};
+
+export const companyProfileApi = {
+  get: async () => {
+    const response = await api.get('/auth/company-profile/');
+    return response.data;
+  },
+  update: async (data) => {
+    const response = await api.put('/auth/company-profile/', data);
+    return response.data;
+  },
 };
 
 // Generic CRUD Generator — baseURL is http://127.0.0.1:8000/api
@@ -171,8 +190,28 @@ export const projectsApi = createResource('projects');
 export const milestonesApi = createResource('milestones');
 export const workflowsApi = createResource('workflows');
 export const workflowLogsApi = createResource('workflow-logs');
-export const quotesApi = createResource('quotes');
-export const invoicesApi = createResource('invoices');
+export const quotesApi = {
+  ...createResource('quotes'),
+  generateInvoice: async (id) => {
+    const response = await api.post(`/quotes/${id}/generate_invoice/`);
+    return response.data;
+  },
+  approve: async (id) => {
+    const response = await api.post(`/quotes/${id}/approve/`);
+    return response.data;
+  },
+};
+export const invoicesApi = {
+  ...createResource('invoices'),
+  sendInvoice: async (id) => {
+    const response = await api.post(`/invoices/${id}/send_invoice/`);
+    return response.data;
+  },
+  markPaid: async (id) => {
+    const response = await api.post(`/invoices/${id}/mark_paid/`);
+    return response.data;
+  },
+};
 export const casesApi = createResource('cases');
 export const solutionsApi = createResource('solutions');
 export const servicesApi = createResource('services');

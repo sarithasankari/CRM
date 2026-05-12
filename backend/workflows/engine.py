@@ -375,6 +375,7 @@ def execute_workflow_rules(task, chain_id=None):
     Fetches WorkflowRule records based on task_type and outcome.
     """
     from workflows.models import WorkflowRule, WorkflowExecutionLog, WorkflowActionLog
+    from leads.models import Lead
     from tasks.models import Task
     
     rules = WorkflowRule.objects.filter(
@@ -404,6 +405,8 @@ def execute_workflow_rules(task, chain_id=None):
         from tasks.models import Task
         from django.utils import timezone
         
+        logger.info(f"[execute_workflow_rules] Handling no_response for task {task.pk}, lead {task.lead.id}")
+        
         # Count previous failed calls
         retry_count = Task.objects.filter(
             lead=task.lead, 
@@ -412,8 +415,7 @@ def execute_workflow_rules(task, chain_id=None):
             status='completed'
         ).count()
         
-        # Update lead status
-        task.lead.status = 'follow_up_pending'
+        logger.info(f"[execute_workflow_rules] retry_count={retry_count}")
         
         delay_days = 0
         if retry_count == 1:
@@ -423,12 +425,8 @@ def execute_workflow_rules(task, chain_id=None):
         elif retry_count == 3:
             delay_days = 7
         elif retry_count >= 4:
-            task.lead.status = 'unreachable'
-            task.lead.save(update_fields=['status'])
-            actions_taken.append(f"Marked Lead as Unreachable (Retry count: {retry_count})")
+            actions_taken.append(f"Reached max unreachability (Retry count: {retry_count})")
             return actions_taken
-            
-        task.lead.save(update_fields=['status'])
         
         if delay_days > 0:
             from tasks.services import TaskService
@@ -455,9 +453,10 @@ def execute_workflow_rules(task, chain_id=None):
     # Special case for not_interested
     if task.task_type == 'call' and task.outcome == 'not_interested' and task.lead:
         from tasks.models import Task
+        from leads.models import Lead
         
-        # Update lead status
-        task.lead.status = 'closed_lost'
+        # Update lead status to lost
+        task.lead.status = 'lost'
         task.lead.save(update_fields=['status'])
         
         # Close all pending follow-up tasks
@@ -466,17 +465,14 @@ def execute_workflow_rules(task, chain_id=None):
             status='not_started'
         ).update(status='completed', outcome='canceled', is_active=False)
         
-        actions_taken.append("Marked Lead as Closed Lost and cancelled pending tasks")
+        actions_taken.append("Marked Lead as Lost and cancelled pending tasks")
 
     # Special case for callback_later
     if task.task_type == 'call' and task.outcome == 'callback_later' and task.lead:
         from tasks.models import Task
         from tasks.services import TaskService
         from django.utils import timezone
-        
-        # Update lead status
-        task.lead.status = 'callback_scheduled'
-        task.lead.save(update_fields=['status'])
+        from leads.models import Lead
         
         # Create callback task (default to 1 day later)
         due_date = timezone.now() + timedelta(days=1)

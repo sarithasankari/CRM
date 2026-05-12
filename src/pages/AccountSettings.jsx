@@ -1,7 +1,58 @@
-import React from 'react';
-import { Building2, Globe, MapPin, CreditCard } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Building2, Globe, MapPin, CreditCard, Loader2 } from 'lucide-react';
+import { companyProfileApi } from '../services/api';
+import { useToast } from '../context/ToastContext';
 
 export default function AccountSettings() {
+  const [profile, setProfile] = useState({
+    name: '',
+    website: '',
+    phone: '',
+    street_address: '',
+    city: '',
+    country: ''
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const { addToast } = useToast();
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const data = await companyProfileApi.get();
+        setProfile(data);
+      } catch (error) {
+        console.error("Failed to fetch profile", error);
+        addToast('Failed to load company profile', 'error');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setProfile(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSave = async () => {
+    try {
+      await companyProfileApi.update(profile);
+      addToast('Profile updated successfully!', 'success');
+    } catch (error) {
+      console.error("Failed to update profile", error);
+      addToast('Failed to update profile', 'error');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -24,7 +75,9 @@ export default function AccountSettings() {
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Company Name</label>
                 <input 
                   type="text" 
-                  defaultValue="Acme Corporation"
+                  name="name"
+                  value={profile.name || ''}
+                  onChange={handleChange}
                   className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
                 />
               </div>
@@ -34,7 +87,9 @@ export default function AccountSettings() {
                   <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
                     type="text" 
-                    defaultValue="https://acme.com"
+                    name="website"
+                    value={profile.website || ''}
+                    onChange={handleChange}
                     className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
                   />
                 </div>
@@ -43,13 +98,18 @@ export default function AccountSettings() {
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Phone</label>
                 <input 
                   type="text" 
-                  defaultValue="+1 (555) 0123"
+                  name="phone"
+                  value={profile.phone || ''}
+                  onChange={handleChange}
                   className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
                 />
               </div>
             </div>
             <div className="mt-6">
-              <button className="px-6 py-3 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20">
+              <button 
+                onClick={handleSave}
+                className="px-6 py-3 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+              >
                 Save Profile
               </button>
             </div>
@@ -66,7 +126,9 @@ export default function AccountSettings() {
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Street Address</label>
                 <input 
                   type="text" 
-                  defaultValue="123 Innovation Way"
+                  name="street_address"
+                  value={profile.street_address || ''}
+                  onChange={handleChange}
                   className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
                 />
               </div>
@@ -74,7 +136,9 @@ export default function AccountSettings() {
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">City</label>
                 <input 
                   type="text" 
-                  defaultValue="San Francisco"
+                  name="city"
+                  value={profile.city || ''}
+                  onChange={handleChange}
                   className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
                 />
               </div>
@@ -82,13 +146,18 @@ export default function AccountSettings() {
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Country</label>
                 <input 
                   type="text" 
-                  defaultValue="United States"
+                  name="country"
+                  value={profile.country || ''}
+                  onChange={handleChange}
                   className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
                 />
               </div>
             </div>
             <div className="mt-6">
-              <button className="px-6 py-3 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20">
+              <button 
+                onClick={handleSave}
+                className="px-6 py-3 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+              >
                 Save Address
               </button>
             </div>

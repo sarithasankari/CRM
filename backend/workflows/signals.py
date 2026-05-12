@@ -167,6 +167,12 @@ def emit_workflow_events(sender, instance, created, **kwargs):
                 logger.info(f"[WorkflowSignals] Detected task completion for {module}:{instance.pk}")
                 dispatch_event(module, 'on_task_complete', instance, previous, parent_chain_id=parent_chain_id)
                 
+                # NEW: Run config-driven workflow rules
+                if module == 'task':
+                    from workflows.engine import execute_workflow_rules
+                    actions = execute_workflow_rules(instance, chain_id=parent_chain_id)
+                    logger.info(f"[WorkflowSignals] Executed workflow rules for task {instance.pk}: {actions}")
+                
                 # Chain to next workflow (task-driven automation)
                 _trigger_dependent_workflows(instance, previous, parent_chain_id=parent_chain_id)
     except Exception as exc:

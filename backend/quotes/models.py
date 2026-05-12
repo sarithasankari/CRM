@@ -23,7 +23,13 @@ class Quote(models.Model):
     )
     deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name='quotes')
     quote_number = models.CharField(max_length=50, unique=True)
-    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    
+    # Financials
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    total_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)  # Total amount
+    
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     valid_until = models.DateField(null=True, blank=True)
     
@@ -50,10 +56,15 @@ class QuoteLineItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='quote_line_items')
     quantity = models.PositiveIntegerField(default=1)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
 
     @property
     def line_total(self):
-        return self.quantity * self.unit_price
+        base = self.quantity * self.unit_price
+        after_discount = base - self.discount
+        tax = after_discount * (self.tax_percent / 100)
+        return after_discount + tax
 
     def __str__(self):
         return f"{self.product.name} x {self.quantity}"

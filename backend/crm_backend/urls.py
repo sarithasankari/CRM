@@ -67,6 +67,7 @@ urlpatterns = [
     path('api/analytics/dashboard/', DashboardStatsAPIView.as_view(), name='dashboard-stats'),
     path('api/analytics/team/', TeamPerformanceAPIView.as_view(), name='team-performance'),
     path('api/emails/send/', SendEmailAPIView.as_view(), name='send-email'),
+    path('api/emails/', include('emails.urls')),
     path('api/support/stats/', SupportStatsAPIView.as_view(), name='support-stats'),
     # Marketing automation endpoints
     path('api/marketing/capture-lead/', MarketingLeadCaptureView.as_view(), name='marketing-capture-lead'),

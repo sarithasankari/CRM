@@ -26,7 +26,14 @@ class Invoice(models.Model):
         related_name='invoices',
     )
     invoice_number = models.CharField(max_length=50, unique=True)
-    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    
+    # Financials
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    discount_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    tax_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)  # Keep for compatibility
+    
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     due_date = models.DateField(null=True, blank=True)
     
@@ -46,3 +53,22 @@ class Invoice(models.Model):
 
     def __str__(self):
         return self.invoice_number
+
+
+class InvoiceLineItem(models.Model):
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='line_items')
+    product = models.ForeignKey('deals.Product', on_delete=models.PROTECT, related_name='invoice_line_items')
+    quantity = models.PositiveIntegerField(default=1)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+
+    @property
+    def line_total(self):
+        base = self.quantity * self.unit_price
+        after_discount = base - self.discount
+        tax = after_discount * (self.tax_percent / 100)
+        return after_discount + tax
+
+    def __str__(self):
+        return f"{self.product.name} x {self.quantity}"

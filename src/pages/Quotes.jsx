@@ -11,8 +11,10 @@ import {
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import dayjs from 'dayjs';
+import { useAuth } from '../context/AuthContext';
 
 export default function Quotes() {
+  const { can } = useAuth();
   const [quotes, setQuotes] = useState([]);
   const [deals, setDeals] = useState([]);
   const [products, setProducts] = useState([]);
@@ -25,6 +27,7 @@ export default function Quotes() {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState(null); // Tracks open actions menu
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [search, setSearch] = useState('');
   
   const { addToast } = useToast();
   
@@ -39,7 +42,8 @@ export default function Quotes() {
     notes: '',
     payment_terms: '50% advance, 50% on completion',
     delivery_terms: 'Digital delivery',
-    revision_policy: 'Up to 3 revisions included'
+    revision_policy: 'Up to 3 revisions included',
+    line_items: []
   });
 
   const [editFormData, setEditFormData] = useState({
@@ -170,18 +174,23 @@ export default function Quotes() {
 
   const handleConvertToInvoice = async (quote) => {
     try {
-      const invoicePayload = {
-        quote: quote.id,
-        invoice_number: `INV-${Math.floor(Math.random() * 10000)}`,
-        // Note: We do not send amount here to ensure Invoices remain dynamic 
-        // and fetch live data from the Quote.
-        status: 'draft',
-        due_date: dayjs().add(30, 'day').format('YYYY-MM-DD')
-      };
-      await invoicesApi.create(invoicePayload);
-      addToast('Invoice created successfully!', 'success');
+      await quotesApi.generateInvoice(quote.id);
+      addToast('Invoice generated successfully!', 'success');
     } catch (err) {
-      addToast('Failed to convert to invoice', 'error');
+      const errorMsg = err.response?.data?.error || 'Failed to generate invoice';
+      addToast(errorMsg, 'error');
+    }
+    setActiveDropdown(null);
+  };
+
+  const handleApprove = async (quote) => {
+    try {
+      await quotesApi.approve(quote.id);
+      addToast('Quote approved successfully!', 'success');
+      fetchQuotes();
+    } catch (err) {
+      const errorMsg = err.response?.data?.error || 'Failed to approve quote';
+      addToast(errorMsg, 'error');
     }
     setActiveDropdown(null);
   };
@@ -284,7 +293,7 @@ export default function Quotes() {
       ...editFormData,
       line_items: [
         ...editFormData.line_items,
-        { product: '', quantity: 1, unit_price: 0 }
+        { product: '', quantity: 1, unit_price: 0, discount: 0, tax_percent: 0 }
       ]
     });
   };
@@ -308,6 +317,37 @@ export default function Quotes() {
     }
     
     setEditFormData({ ...editFormData, line_items: newList });
+  };
+
+  const handleAddCreateLineItem = () => {
+    setFormData({
+      ...formData,
+      line_items: [
+        ...formData.line_items,
+        { product: '', quantity: 1, unit_price: 0, discount: 0, tax_percent: 0 }
+      ]
+    });
+  };
+
+  const handleRemoveCreateLineItem = (index) => {
+    const newList = [...formData.line_items];
+    newList.splice(index, 1);
+    setFormData({ ...formData, line_items: newList });
+  };
+
+  const handleCreateLineItemChange = (index, field, value) => {
+    const newList = [...formData.line_items];
+    newList[index][field] = value;
+    
+    // Auto-fill price if product changes
+    if (field === 'product') {
+      const prod = products.find(p => p.id === parseInt(value));
+      if (prod) {
+        newList[index]['unit_price'] = parseFloat(prod.price);
+      }
+    }
+    
+    setFormData({ ...formData, line_items: newList });
   };
 
   const columns = [
@@ -407,6 +447,12 @@ export default function Quotes() {
     }
     
     try {
+      // Validate line items
+      if (!formData.line_items || formData.line_items.length === 0) {
+        addToast('Please add at least one product to the quote', 'error');
+        return;
+      }
+
       const payload = { ...formData };
       if (!payload.valid_until) delete payload.valid_until;
       
@@ -427,13 +473,21 @@ export default function Quotes() {
         notes: '',
         payment_terms: '50% advance, 50% on completion',
         delivery_terms: 'Digital delivery',
-        revision_policy: 'Up to 3 revisions included'
+        revision_policy: 'Up to 3 revisions included',
+        line_items: []
       });
       fetchQuotes();
     } catch (err) {
       addToast('Failed to create quote', 'error');
     }
   };
+
+  const filteredQuotes = quotes.filter(quote => {
+    const searchLower = search.toLowerCase();
+    return (quote.quote_number?.toLowerCase().includes(searchLower) ||
+            quote.customer_name?.toLowerCase().includes(searchLower) ||
+            quote.deal_title?.toLowerCase().includes(searchLower));
+  });
 
   return (
     <div className="space-y-6 animate-fade-in max-w-[1400px] mx-auto pb-10">
@@ -505,6 +559,112 @@ export default function Quotes() {
               <textarea className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 h-24" value={formData.requirement_summary} onChange={e => setFormData({...formData, requirement_summary: e.target.value})} placeholder="Briefly describe what the client needs..."></textarea>
             </div>
 
+            {/* Line Items Grid for Creation */}
+            <div className="border-t border-slate-100 pt-5 mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Quote Items</h4>
+                <button type="button" onClick={handleAddCreateLineItem} className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center">
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Add Item
+                </button>
+              </div>
+              
+              <div className="space-y-3">
+                {(formData.line_items || []).map((item, index) => (
+                  <div key={index} className="grid grid-cols-12 gap-3 items-center bg-slate-50 p-3 rounded-lg">
+                    <div className="col-span-4">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Product/Service</label>
+                      <select 
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                        value={item.product}
+                        onChange={e => handleCreateLineItemChange(index, 'product', e.target.value)}
+                      >
+                        <option value="">Select Product</option>
+                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Qty</label>
+                      <input 
+                        type="number" 
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                        value={item.quantity}
+                        onChange={e => handleCreateLineItemChange(index, 'quantity', parseInt(e.target.value))}
+                        min="1"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price</label>
+                      <input 
+                        type="number" 
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                        value={item.unit_price}
+                        onChange={e => handleCreateLineItemChange(index, 'unit_price', parseFloat(e.target.value))}
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Discount</label>
+                      <input 
+                        type="number" 
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                        value={item.discount}
+                        onChange={e => handleCreateLineItemChange(index, 'discount', parseFloat(e.target.value))}
+                      />
+                    </div>
+                    <div className="col-span-1">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tax %</label>
+                      <input 
+                        type="number" 
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                        value={item.tax_percent}
+                        onChange={e => handleCreateLineItemChange(index, 'tax_percent', parseFloat(e.target.value))}
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-end">
+                      <button 
+                        type="button" 
+                        onClick={() => handleRemoveCreateLineItem(index)}
+                        className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all mt-4"
+                        title="Remove Item"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Summary in Create Form */}
+              {(formData.line_items || []).length > 0 && (
+                <div className="mt-4 border-t border-slate-100 pt-3 flex justify-end">
+                  <div className="w-64 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Subtotal:</span>
+                      <span className="font-semibold text-slate-900">
+                        ${formData.line_items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Total Discount:</span>
+                      <span className="font-semibold text-slate-900">
+                        ${formData.line_items.reduce((sum, item) => sum + (parseFloat(item.discount) || 0), 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200 pt-1 font-bold">
+                      <span className="text-slate-900">Estimated Total:</span>
+                      <span className="text-blue-600">
+                        ${formData.line_items.reduce((sum, item) => {
+                          const base = item.quantity * item.unit_price;
+                          const after_discount = base - (parseFloat(item.discount) || 0);
+                          const tax = after_discount * ((parseFloat(item.tax_percent) || 0) / 100);
+                          return sum + after_discount + tax;
+                        }, 0).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="mt-6 pt-6 border-t border-slate-100 flex justify-end items-center space-x-3">
               <button type="button" onClick={() => setIsCreating(false)} className="text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">Discard</button>
               <button type="submit" className="px-5 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors flex items-center">
@@ -520,7 +680,13 @@ export default function Quotes() {
              <div className="flex items-center space-x-3">
                 <div className="relative">
                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                   <input type="text" placeholder="Filter registry..." className="pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-blue-500 transition-all" />
+                   <input 
+                     type="text" 
+                     placeholder="Filter registry..." 
+                     value={search}
+                     onChange={(e) => setSearch(e.target.value)}
+                     className="pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-blue-500 transition-all" 
+                   />
                 </div>
              </div>
           </div>
@@ -531,7 +697,7 @@ export default function Quotes() {
                <p className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Loading...</p>
             </div>
           ) : (
-            <Table columns={columns} data={quotes} />
+            <Table columns={columns} data={filteredQuotes} />
           )}
         </div>
       )}
@@ -991,16 +1157,24 @@ export default function Quotes() {
                   <button onClick={() => handleStatusChange(row, 'negotiating')} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
                     <TrendingUp className="w-3.5 h-3.5 mr-2 text-amber-500" /> Mark as Negotiating
                   </button>
-                  <button onClick={() => handleStatusChange(row, 'accepted')} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
-                    <CheckCircle className="w-3.5 h-3.5 mr-2 text-emerald-500" /> Mark as Accepted
-                  </button>
+                  {row.status === 'sent' && can('quote.approve') && (
+                    <button onClick={() => handleApprove(row)} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
+                      <CheckCircle className="w-3.5 h-3.5 mr-2 text-emerald-500" /> Approve Quote
+                    </button>
+                  )}
                   <button onClick={() => handleStatusChange(row, 'rejected')} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center">
                     <XCircle className="w-3.5 h-3.5 mr-2 text-rose-500" /> Mark as Rejected
                   </button>
                   <div className="border-t border-slate-100 my-1"></div>
-                  <button onClick={() => handleConvertToInvoice(row)} className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center font-semibold">
-                    <FileOutput className="w-3.5 h-3.5 mr-2" /> Convert to Invoice
-                  </button>
+                  {can('invoice.generate') && (
+                    <button 
+                      onClick={() => handleConvertToInvoice(row)} 
+                      disabled={row.status !== 'accepted'}
+                      className={`w-full text-left px-4 py-2 text-xs flex items-center font-semibold ${row.status === 'accepted' ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-400 cursor-not-allowed'}`}
+                    >
+                      <FileOutput className="w-3.5 h-3.5 mr-2" /> Convert to Invoice
+                    </button>
+                  )}
                   <button onClick={() => handleDelete(row.id)} className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center font-semibold">
                     <Trash className="w-3.5 h-3.5 mr-2" /> Delete Quote
                   </button>

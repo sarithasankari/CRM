@@ -37,8 +37,12 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const can = (permission) => {
+    return user?.permissions?.includes(permission) || false;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, can }}>
       {!loading && children}
     </AuthContext.Provider>
   );

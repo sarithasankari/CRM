@@ -63,3 +63,13 @@ class RoleBasedAccessPermission(permissions.BasePermission):
             return obj.assigned_to
 
         return None
+
+def has_perm(perm_name):
+    class CustomPermission(permissions.BasePermission):
+        def has_permission(self, request, view):
+            if not request.user or not request.user.is_authenticated:
+                return False
+            if not request.user.role_fk:
+                return False
+            return request.user.role_fk.permissions.filter(name=perm_name).exists()
+    return CustomPermission
