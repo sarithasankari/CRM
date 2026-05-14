@@ -128,7 +128,15 @@ export default function Marketing() {
     }
   };
 
-  useEffect(() => { fetchData(); }, [lastMessage]);
+  useEffect(() => { 
+    fetchData(); 
+    
+    // Handle deep-linking from Sidebar hash fragments
+    const hash = window.location.hash.replace('#', '');
+    if (hash === 'campaigns') setActiveTab('campaigns');
+    else if (hash === 'capture') setActiveTab('lead_capture');
+    else if (hash === 'analytics') setActiveTab('analytics');
+  }, [lastMessage]);
 
   const openCreate = () => { setEditingId(null); setFormData(EMPTY_FORM); setIsModalOpen(true); };
   const openEdit = (c) => {
@@ -264,13 +272,13 @@ export default function Marketing() {
                 <RePieChart>
                   <Pie
                     data={pieData}
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={8}
+                    innerRadius={70}
+                    outerRadius={90}
+                    paddingAngle={5}
                     dataKey="value"
                   >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    {analytics.leads_by_source?.map((s, index) => (
+                      <Cell key={`cell-${index}`} fill={s.color || '#2563eb'} stroke="none" />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -318,8 +326,8 @@ export default function Marketing() {
                     </div>
                     <div className="text-right">
                       <div className="text-xs font-black text-slate-900">₹{Number(c.actual_revenue).toLocaleString()}</div>
-                      <div className={`text-[10px] font-black uppercase tracking-widest ${c.roi >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {c.roi}% ROI
+                      <div className={`text-[10px] font-black uppercase tracking-widest ${Number(c.roi_percentage) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {c.roi_percentage}% ROI
                       </div>
                     </div>
                   </div>
@@ -638,7 +646,7 @@ export default function Marketing() {
                             </div>
                         </div>
                         <div className="w-20 text-right">
-                            <div className="text-xs font-black text-emerald-600">+{c.roi}%</div>
+                            <div className="text-xs font-black text-emerald-600">+{c.roi_percentage}%</div>
                             <div className="text-[8px] font-black text-slate-300 uppercase tracking-widest">ROI SCORE</div>
                         </div>
                     </div>

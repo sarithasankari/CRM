@@ -75,6 +75,9 @@ export const authService = {
     if (response.data.access) {
       localStorage.setItem('access_token', response.data.access);
       localStorage.setItem('refresh_token', response.data.refresh);
+      if (response.data.session_id) {
+        localStorage.setItem('session_id', response.data.session_id);
+      }
     }
     return response.data;
   },
@@ -88,15 +91,45 @@ export const authService = {
     window.location.href = '/login';
   },
   getCurrentUser: async () => {
-    const response = await api.get('/auth/me/');
+    const response = await api.get('/profile/');
     return response.data;
   },
   updateProfile: async (data) => {
-    const response = await api.patch('/auth/me/', data);
+    const response = await api.patch('/profile/', data);
     return response.data;
   },
   changePassword: async (data) => {
     const response = await api.post('/auth/change-password/', data);
+    return response.data;
+  },
+  getLoginHistory: async () => {
+    const response = await api.get('/settings/login-history/');
+    return response.data;
+  },
+  uploadAvatar: async (file) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const response = await api.patch('/auth/me/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+  getSessions: async () => {
+    const response = await api.get('/security/sessions/');
+    return response.data;
+  },
+  logoutSession: async (id) => {
+    const response = await api.post(`/security/sessions/${id}/logout/`);
+    return response.data;
+  },
+  logoutAllSessions: async () => {
+    const response = await api.post('/security/sessions/logout-all/');
+    return response.data;
+  },
+  getAuditLogs: async () => {
+    const response = await api.get('/security/audit-logs/');
     return response.data;
   }
 };
@@ -225,6 +258,7 @@ export const supportStatsApi = {
 export const usersApi = createResource('users');
 export const meetingsApi = createResource('meetings');
 export const productsApi = createResource('products');
+export const rolesApi = createResource('roles');
 export const callsApi = {
   ...createResource('calls'),
   startCall: async (data) => {
@@ -245,7 +279,7 @@ export const callsApi = {
   },
 };
 
-export const campaignsApi = createResource('campaigns');
+export const campaignsApi = createResource('marketing/campaigns');
 
 // Email API — wraps the real send endpoint + activity log
 export const emailsApi = {

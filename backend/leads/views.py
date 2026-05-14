@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 class LeadViewSet(viewsets.ModelViewSet):
     serializer_class = LeadSerializer
     permission_classes = [RoleBasedAccessPermission]
+    pagination_class = None
     filterset_fields = ['status']
     search_fields = ['name', 'email', 'company']
     ordering_fields = ['created_at', 'updated_at']

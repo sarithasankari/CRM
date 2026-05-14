@@ -5,6 +5,10 @@ class Account(models.Model):
     name = models.CharField(max_length=255)
     industry = models.CharField(max_length=100, blank=True, null=True)
     website = models.URLField(blank=True, null=True)
+    location = models.CharField(max_length=255, blank=True, null=True)
+    phone = models.CharField(max_length=50, blank=True, null=True)
+    company_size = models.CharField(max_length=100, blank=True, null=True)
+    annual_revenue = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

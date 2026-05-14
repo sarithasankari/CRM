@@ -4,7 +4,7 @@ import { contactsApi } from '../services/api';
 import { 
   Plus, Filter, X, Zap, Loader2, AlertCircle, Trash2, Edit2,
   Search, Mail, Phone, Building2, UserCircle, MoreVertical,
-  Download, Globe, MessageSquare
+  Download, Globe, MessageSquare, ArrowDown
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
@@ -15,11 +15,35 @@ export default function Contacts() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingContact, setEditingContact] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 4;
   const { addToast } = useToast();
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
   
   const [formData, setFormData] = useState({
     name: '', email: '', phone: '', company: ''
   });
+
+  const resetForm = () => {
+    setEditingContact(null);
+    setFormData({ name: '', email: '', phone: '', company: '' });
+    setIsModalOpen(false);
+  };
+
+  const handleEdit = (contact) => {
+    setEditingContact(contact);
+    setFormData({
+      name: contact.name || '',
+      email: contact.email || '',
+      phone: contact.phone || '',
+      company: contact.company || ''
+    });
+    setIsModalOpen(true);
+  };
 
   const fetchContacts = async () => {
     setIsLoading(true);
@@ -100,6 +124,9 @@ export default function Contacts() {
           <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Message">
             <MessageSquare className="w-4 h-4" />
           </button>
+          <button onClick={() => handleEdit(row)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Edit">
+            <Edit2 className="w-4 h-4" />
+          </button>
           <button onClick={() => handleDelete(row.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Delete">
             <Trash2 className="w-4 h-4" />
           </button>
@@ -113,17 +140,29 @@ export default function Contacts() {
     contact.company?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleAddContact = async (e) => {
+  const paginatedData = React.useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    return filteredData.slice(start, end);
+  }, [filteredData, currentPage]);
+
+  const totalPages = Math.ceil(filteredData.length / pageSize);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await contactsApi.create(formData);
-      setIsModalOpen(false);
-      setFormData({ name: '', email: '', phone: '', company: '' });
-      addToast("Identity record established");
+      if (editingContact) {
+        await contactsApi.update(editingContact.id, formData);
+        addToast("Contact updated successfully");
+      } else {
+        await contactsApi.create(formData);
+        addToast("Contact created successfully");
+      }
+      resetForm();
       fetchContacts();
     } catch (err) {
-      addToast("Failed to create record", "error");
+      addToast("Operation failed", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -153,7 +192,21 @@ export default function Contacts() {
               className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-72 transition-all shadow-sm"
             />
           </div>
-          <button className="p-2.5 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+          <button 
+            onClick={() => {
+              const csvContent = "data:text/csv;charset=utf-8,name,email,phone,company\n" + 
+                contacts.map(c => `"${c.name || ''}","${c.email || ''}","${c.phone || ''}","${c.company || ''}"`).join("\n");
+              const encodedUri = encodeURI(csvContent);
+              const link = document.createElement("a");
+              link.setAttribute("href", encodedUri);
+              link.setAttribute("download", "contacts.csv");
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            }}
+            className="p-2.5 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+            title="Download CSV"
+          >
             <Download className="w-4 h-4" />
           </button>
           <button 
@@ -186,7 +239,45 @@ export default function Contacts() {
           </div>
         ) : null}
 
-        <Table columns={columns} data={filteredData} />
+        <Table columns={columns} data={paginatedData} />
+
+        {/* Custom Pagination */}
+        <div className="px-8 py-6 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
+          <div className="flex items-center space-x-4">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+              Displaying <span className="text-slate-900">{filteredData.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</span>-
+              <span className="text-slate-900">{Math.min(currentPage * pageSize, filteredData.length)}</span> of 
+              <span className="text-slate-900">{filteredData.length}</span> results
+            </span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button 
+              className="w-10 h-10 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 disabled:opacity-50 transition-all shadow-sm"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            >
+              <ArrowDown className="w-4 h-4 rotate-90" />
+            </button>
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currentPage === page ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20 font-black' : 'text-slate-500 hover:bg-slate-50'}`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            <button 
+              className="w-10 h-10 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 disabled:opacity-50 transition-all shadow-sm"
+              disabled={currentPage === totalPages || totalPages === 0}
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            >
+              <ArrowDown className="w-4 h-4 -rotate-90" />
+            </button>
+          </div>
+        </div>
         
         {filteredData.length === 0 && !isLoading && (
            <div className="p-20 flex flex-col items-center justify-center text-center">
@@ -202,19 +293,21 @@ export default function Contacts() {
       {/* Register Record Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setIsModalOpen(false)} />
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={resetForm} />
           <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
             <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
               <div>
-                <h3 className="text-2xl font-black text-slate-900">Register Record</h3>
+                <h3 className="text-2xl font-black text-slate-900">
+                  {editingContact ? "Edit Contact" : "Add Contact"}
+                </h3>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Contact Establishment</p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all">
+              <button onClick={resetForm} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all">
                 <X className="h-5 w-5" />
               </button>
             </div>
             
-            <form onSubmit={handleAddContact} className="p-8 space-y-6">
+            <form onSubmit={handleSubmit} className="p-8 space-y-6">
               <div className="space-y-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Legal Identity Name *</label>
@@ -239,10 +332,10 @@ export default function Contacts() {
               </div>
 
               <div className="pt-8 mt-4 border-t border-slate-50 flex justify-end space-x-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
+                <button type="button" onClick={resetForm} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
                 <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
                   {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  Register Entry
+                  {editingContact ? "Save Changes" : "Register Entry"}
                 </button>
               </div>
             </form>

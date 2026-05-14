@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { tasksApi } from '../services/api';
 import { 
   Search, ChevronDown, ChevronRight, Inbox, Briefcase, 
   CalendarDays, Package, LifeBuoy, Puzzle, Wrench, 
@@ -10,7 +11,7 @@ import {
 
 const navigationConfig = [
   { name: 'Dashboard', icon: PieChart, href: '/' },
-  { name: 'Workqueue', icon: Inbox, highlighted: true, href: '/workqueue' },
+  { name: 'Workqueue', icon: Inbox, badge: '5', highlighted: true, href: '/workqueue' },
   { 
     name: 'Sales', icon: Briefcase,
     children: [
@@ -27,6 +28,15 @@ const navigationConfig = [
       { name: 'Calls', href: '/calls' },
       { name: 'Emails', href: '/emails' },
       { name: 'Meetings', href: '/meetings' },
+    ]
+  },
+  {
+    name: 'Marketing', icon: Zap,
+    children: [
+      { name: 'Overview', href: '/marketing' },
+      { name: 'Campaigns', href: '/marketing#campaigns' },
+      { name: 'Lead Capture', href: '/marketing#capture' },
+      { name: 'Ads Analytics', href: '/analytics' },
     ]
   },
   {
@@ -47,17 +57,9 @@ const navigationConfig = [
       { name: 'Feedback', href: '/feedback' },
     ]
   },
-  { name: 'Marketing', icon: Zap, href: '/marketing' },
   { name: 'Projects', icon: FolderKanban, href: '/projects' },
   { name: 'Analytics', icon: BarChart3, href: '/analytics' },
-  {
-    name: 'Settings', icon: Wrench,
-    children: [
-      { name: 'Profile', href: '/profile' },
-      { name: 'Account', href: '/account' },
-      { name: 'Users', href: '/users' },
-    ]
-  },
+  { name: 'Settings', icon: Wrench, href: '/settings' },
 ];
 
 const MenuItem = ({ item, isCollapsed, setCollapsed }) => {
@@ -81,18 +83,40 @@ const MenuItem = ({ item, isCollapsed, setCollapsed }) => {
       <NavLink
         to={item.href}
         className={({ isActive }) => 
-          `group flex items-center px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] rounded-2xl transition-all mb-1 ${
+          `group flex items-center px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] rounded-2xl transition-all mb-1 relative overflow-hidden ${
             item.highlighted 
               ? 'bg-blue-600/10 text-blue-400 hover:bg-blue-600/20' 
               : isActive 
-                ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/30 scale-[1.02]' 
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-600/30 scale-[1.02]' 
                 : 'text-slate-400 hover:bg-white/5 hover:text-white'
           }`
         }
         title={isCollapsed ? item.name : undefined}
       >
-        <item.icon className={`flex-shrink-0 ${isCollapsed ? 'w-5 h-5 mx-auto' : 'w-4 h-4 mr-4'}`} />
-        {!isCollapsed && <span>{item.name}</span>}
+        {({ isActive }) => (
+          <>
+            <item.icon className={`flex-shrink-0 transition-transform group-hover:scale-110 ${isCollapsed ? 'w-5 h-5 mx-auto' : 'w-4 h-4 mr-4'}`} />
+            {!isCollapsed && (
+              <div className="flex items-center justify-between flex-1">
+                <span>{item.name}</span>
+                {item.badge && (
+                  <span className={`ml-2 px-2 py-0.5 rounded-lg text-[9px] font-black ${
+                    isNaN(parseInt(item.badge)) ? (item.highlighted ? 'bg-blue-500 text-white' : 'bg-white/10 text-slate-400') :
+                    parseInt(item.badge) === 0 ? 'hidden' :
+                    parseInt(item.badge) <= 10 ? 'bg-blue-500 text-white' :
+                    parseInt(item.badge) <= 50 ? 'bg-orange-500 text-white' :
+                    'bg-red-500 text-white'
+                  }`}>
+                    {item.badge}
+                  </span>
+                )}
+              </div>
+            )}
+            {item.highlighted && !isActive && (
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+            )}
+          </>
+        )}
       </NavLink>
     );
   }
@@ -142,6 +166,25 @@ const MenuItem = ({ item, isCollapsed, setCollapsed }) => {
 
 export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [taskCount, setTaskCount] = useState(0);
+
+  useEffect(() => {
+    const fetchTaskCount = async () => {
+      try {
+        const response = await tasksApi.getAll();
+        const tasks = response.results || response;
+        const incompleteTasks = tasks.filter(task => task.status !== 'completed');
+        setTaskCount(incompleteTasks.length);
+      } catch (error) {
+        console.error("Failed to fetch Workqueue count", error);
+      }
+    };
+    fetchTaskCount();
+  }, []);
+
+  const updatedNavigationConfig = navigationConfig.map(item =>
+    item.name === 'Workqueue' ? { ...item, badge: taskCount.toString() } : item
+  );
 
   return (
     <div className={`flex flex-col bg-slate-950 h-screen transition-all duration-500 z-20 shrink-0 border-r border-white/5 relative ${isCollapsed ? 'w-24' : 'w-72'}`}>
@@ -164,7 +207,7 @@ export default function Sidebar() {
       {/* Navigation Section */}
       <div className="flex-1 overflow-y-auto py-2 px-6 custom-scrollbar scrollbar-hide">
         <nav className="space-y-1">
-          {navigationConfig.map((item) => (
+          {updatedNavigationConfig.map((item) => (
             <MenuItem key={item.name} item={item} isCollapsed={isCollapsed} setCollapsed={setIsCollapsed} />
           ))}
         </nav>

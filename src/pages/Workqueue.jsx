@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   CheckCircle2, Clock, CalendarDays, AlertCircle, 
   PhoneCall, Mail, CheckSquare, ArrowDown, ArrowUp, 
   Minus, Loader2, ListTodo, Search, Filter,
-  Zap, MoreHorizontal, ChevronRight, LayoutGrid
+  Zap, MoreHorizontal, ChevronRight, LayoutGrid, Trash2
 } from 'lucide-react';
 import { tasksApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 
 export default function Workqueue() {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState('All');
+  const [openMenuId, setOpenMenuId] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -87,6 +90,17 @@ export default function Workqueue() {
       fetchTasks();
     } catch (err) {
       addToast('Finalization Failed', 'error');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this task?")) return;
+    try {
+      await tasksApi.delete(id);
+      addToast('Task deleted successfully');
+      fetchTasks();
+    } catch (err) {
+      addToast('Failed to delete task', 'error');
     }
   };
 
@@ -204,16 +218,48 @@ export default function Workqueue() {
 
                 {/* Operator Tools */}
                 <div className="flex items-center space-x-3 opacity-0 group-hover:opacity-100 transition-opacity translate-x-4 group-hover:translate-x-0 transition-transform">
-                  <button className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm">
+                  <button 
+                    onClick={() => navigate('/calls')}
+                    className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm"
+                    title="Navigate to Calls"
+                  >
                     <PhoneCall className="w-4 h-4" />
                   </button>
-                  <button className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm">
+                  <button 
+                    onClick={() => navigate('/emails')}
+                    className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm"
+                    title="Navigate to Emails"
+                  >
                     <Mail className="w-4 h-4" />
                   </button>
                   <div className="w-px h-6 bg-slate-200 mx-1" />
-                  <button className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-slate-900 hover:border-slate-300 transition-all shadow-sm">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </button>
+                  <div className="relative">
+                    <button 
+                      onClick={() => setOpenMenuId(openMenuId === task.id ? null : task.id)}
+                      className="w-10 h-10 flex items-center justify-center bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-slate-900 hover:border-slate-300 transition-all shadow-sm"
+                      title="More Actions"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                    {openMenuId === task.id && (
+                      <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-xl shadow-lg z-50 py-1">
+                        <button 
+                          onClick={() => { markComplete(task.id); setOpenMenuId(null); }}
+                          className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center space-x-2"
+                        >
+                          <CheckSquare className="w-4 h-4 text-emerald-500" />
+                          <span>Complete Task</span>
+                        </button>
+                        <button 
+                          onClick={() => { handleDelete(task.id); setOpenMenuId(null); }}
+                          className="w-full text-left px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 flex items-center space-x-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Delete Task</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

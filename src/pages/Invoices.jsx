@@ -18,6 +18,7 @@ export default function Invoices() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [generatingPDFId, setGeneratingPDFId] = useState(null);
   const { addToast } = useToast();
 
   const fetchInvoices = async () => {
@@ -54,6 +55,42 @@ export default function Invoices() {
     } catch (err) {
       addToast('Failed to mark invoice as paid', 'error');
     }
+  };
+
+  const handleDownloadPDF = (invoice) => {
+    setSelectedInvoice(invoice);
+    setGeneratingPDFId(invoice.id);
+    
+    setTimeout(() => {
+      const element = document.getElementById(`printable-invoice-${invoice.id}`);
+      if (!element) {
+        addToast('Invoice element not found', 'error');
+        setGeneratingPDFId(null);
+        return;
+      }
+      
+      const opt = {
+        margin:       0.5,
+        filename:     `Invoice-${invoice.invoice_number}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      };
+      
+      if (window.html2pdf) {
+        window.html2pdf().from(element).set(opt).save().then(() => {
+          setGeneratingPDFId(null);
+          addToast('Invoice PDF downloaded successfully', 'success');
+        }).catch(err => {
+          console.error(err);
+          setGeneratingPDFId(null);
+          addToast('Failed to generate PDF', 'error');
+        });
+      } else {
+        setGeneratingPDFId(null);
+        addToast('PDF library not loaded. Please refresh.', 'error');
+      }
+    }, 500);
   };
 
   const filteredInvoices = invoices.filter(inv => 
@@ -228,8 +265,13 @@ export default function Invoices() {
             </button>
           )}
 
-          <button className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Download PDF">
-            <Download className="w-4 h-4" />
+          <button 
+            onClick={() => handleDownloadPDF(row)}
+            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" 
+            title="Download PDF"
+            disabled={generatingPDFId !== null}
+          >
+            {generatingPDFId === row.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
           </button>
         </div>
       )
@@ -412,15 +454,104 @@ export default function Invoices() {
 
               {/* Actions */}
               <div className="border-t border-slate-100 pt-5 flex justify-end space-x-3">
-                <button className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center">
-                  <Download className="w-4 h-4 mr-2" /> Download PDF
+                <button 
+                  onClick={() => handleDownloadPDF(selectedInvoice)}
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center"
+                  disabled={generatingPDFId !== null}
+                >
+                  {generatingPDFId === selectedInvoice.id ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />} Download PDF
                 </button>
-                <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 flex items-center">
-                  <CreditCard className="w-4 h-4 mr-2" /> Record Payment
-                </button>
+                {(selectedInvoice.status === 'sent' || selectedInvoice.status === 'overdue') && can('invoice.mark_paid') && (
+                  <button 
+                    onClick={() => handleMarkPaid(selectedInvoice)}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 flex items-center"
+                  >
+                    <CreditCard className="w-4 h-4 mr-2" /> Record Payment
+                  </button>
+                )}
               </div>
 
             </div>
+          </div>
+        </div>
+      )}
+      {/* Hidden Printable/PDF Area */}
+      {selectedInvoice && (
+        <div id={`printable-invoice-${selectedInvoice.id}`} className="absolute -left-[9999px] top-0 p-10 bg-white text-slate-900 w-[800px]" style={{ fontFamily: 'Inter, sans-serif' }}>
+          <div className="flex justify-between items-start mb-8">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900">INVOICE</h1>
+              <p className="text-sm text-slate-500 mt-1"># {selectedInvoice.invoice_number}</p>
+            </div>
+            <div className="text-right">
+              <h2 className="text-lg font-bold text-slate-900">CRM Suite</h2>
+              <p className="text-xs text-slate-500">Enterprise Edition</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6 mb-8 border-t border-b border-slate-100 py-4">
+            <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Customer</h4>
+              <p className="text-sm font-semibold text-slate-900">{selectedInvoice.customer_name || 'N/A'}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Deal: {selectedInvoice.deal_title || 'N/A'}</p>
+            </div>
+            <div className="text-right">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Details</h4>
+              <p className="text-sm text-slate-900">Date: {dayjs(selectedInvoice.created_at).format('DD/MM/YYYY')}</p>
+              <p className="text-sm text-slate-900">Due Date: {selectedInvoice.due_date ? dayjs(selectedInvoice.due_date).format('DD/MM/YYYY') : 'N/A'}</p>
+              <p className="text-sm font-bold text-blue-600 mt-1">Status: {getPaymentStatus(selectedInvoice.status)}</p>
+            </div>
+          </div>
+
+          <table className="min-w-full divide-y divide-slate-200 mb-8">
+            <thead>
+              <tr className="bg-slate-50">
+                <th className="px-4 py-2 text-left text-xs font-bold text-slate-500 uppercase">Item</th>
+                <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase">Qty</th>
+                <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase">Price</th>
+                <th className="px-4 py-2 text-right text-xs font-bold text-slate-500 uppercase">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {selectedInvoice.line_items?.length > 0 ? (
+                selectedInvoice.line_items.map((item, idx) => (
+                  <tr key={idx}>
+                    <td className="px-4 py-2 text-sm text-slate-900">{item.product_name || `Item #${item.product}`}</td>
+                    <td className="px-4 py-2 text-sm text-slate-600 text-right">{item.quantity}</td>
+                    <td className="px-4 py-2 text-sm text-slate-600 text-right">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(item.unit_price))}</td>
+                    <td className="px-4 py-2 text-sm text-slate-900 text-right font-semibold">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(item.line_total))}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="px-4 py-2 text-sm text-slate-900">Custom Project Service</td>
+                  <td className="px-4 py-2 text-sm text-slate-600 text-right">1</td>
+                  <td className="px-4 py-2 text-sm text-slate-600 text-right">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(selectedInvoice.amount))}</td>
+                  <td className="px-4 py-2 text-sm text-slate-900 text-right font-semibold">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(selectedInvoice.amount))}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          <div className="flex justify-end">
+            <div className="w-64 space-y-2 border-t border-slate-200 pt-4">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">Subtotal:</span>
+                <span className="font-semibold text-slate-900">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(selectedInvoice.amount))}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">Tax (GST 18%):</span>
+                <span className="font-semibold text-slate-900">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(selectedInvoice.amount) * 0.18)}</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
+                <span className="text-slate-900">Grand Total:</span>
+                <span className="text-blue-600">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(selectedInvoice.amount) * 1.18)}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-12 text-center text-xs text-slate-400 border-t border-slate-100 pt-4">
+            Thank you for your business!
           </div>
         </div>
       )}

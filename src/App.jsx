@@ -22,6 +22,7 @@ const Workflows      = lazy(() => import('./pages/Workflows'));
 const Products       = lazy(() => import('./pages/Products'));
 const Profile        = lazy(() => import('./pages/Profile'));
 const AccountSettings = lazy(() => import('./pages/AccountSettings'));
+const Settings       = lazy(() => import('./pages/Settings'));
 const Users          = lazy(() => import('./pages/Users'));
 const Invoices       = lazy(() => import('./pages/Invoices'));
 const Cases          = lazy(() => import('./pages/Cases'));
@@ -64,6 +65,7 @@ function App() {
             <Route path="accounts" element={<Accounts />} />
             <Route path="profile" element={<Profile />} />
             <Route path="account" element={<AccountSettings />} />
+            <Route path="settings" element={<Settings />} />
             <Route path="users" element={<Users />} />
             <Route path="tasks" element={<Tasks />} />
             <Route path="calls" element={<Calls />} />

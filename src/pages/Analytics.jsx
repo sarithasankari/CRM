@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { 
   TrendingUp, DollarSign, Clock, Award, 
   TrendingDown, Minus, ArrowUpRight, ArrowDownRight, Map,
-  BarChart3, PieChart, Activity, Globe, Zap, Filter, ChevronDown
+  BarChart3, PieChart as PieChartIcon, Activity, Globe, Zap, Filter, ChevronDown
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, AreaChart, Area 
+  ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell 
 } from 'recharts';
 
 import { analyticsApi } from '../services/api';
@@ -156,37 +156,58 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Global Distribution */}
+        {/* Global Distribution - Dynamic Pie Chart */}
         <div className="bg-slate-900 rounded-[40px] p-10 text-white relative overflow-hidden flex flex-col group">
-          <div className="relative z-10">
+          <div className="relative z-10 flex-1 flex flex-col">
             <div className="flex items-center justify-between mb-1">
                <h3 className="text-xl font-black text-white">Lead Sources</h3>
                <Globe className="w-6 h-6 text-blue-500" />
             </div>
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Acquisition Channels</p>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Interactive Channel Breakdown</p>
             
-            <div className="mt-12 space-y-10">
+            <div className="mt-6 flex-1 relative h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={leadSources}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                    animationBegin={0}
+                    animationDuration={1500}
+                  >
+                    {leadSources.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '16px', color: '#fff' }}
+                    itemStyle={{ color: '#fff', fontSize: '10px', fontWeight: 'bold' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="mt-6 space-y-4 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
               {leadSources.map((loc, i) => (
-                <div key={i}>
-                  <div className="flex justify-between text-[11px] font-black tracking-widest uppercase mb-4">
-                    <span className="text-slate-400">{loc.name}</span>
-                    <span>{loc.value}%</span>
+                <div key={i} className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <div className="w-2 h-2 rounded-full mr-3" style={{ backgroundColor: loc.color }} />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{loc.name}</span>
                   </div>
-                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div className={`bg-${loc.color} h-full rounded-full group-hover:opacity-100 transition-opacity`} style={{ width: `${loc.value}%` }}></div>
+                  <div className="text-right">
+                    <span className="text-[11px] font-black text-white">{loc.value}%</span>
+                    <span className="text-[9px] font-bold text-slate-600 block leading-none">{loc.raw_count} leads</span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
           
-          <div className="mt-auto relative z-10 pt-10">
-             <button className="w-full py-4 bg-slate-800 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-300 hover:text-white hover:bg-slate-700 transition-all">
-                Export Regional Data
-             </button>
-          </div>
-          
-          <div className="absolute top-0 right-0 p-10 opacity-20 group-hover:scale-125 transition-transform duration-1000">
+          <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
              <Map className="w-64 h-64 text-blue-500" />
           </div>
         </div>

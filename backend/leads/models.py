@@ -50,6 +50,7 @@ class Lead(models.Model):
         ('website', 'Website'),
         ('whatsapp', 'WhatsApp'),
         ('referral', 'Referral'),
+        ('linkedin', 'LinkedIn'),
         ('direct', 'Direct Call'),
         ('email', 'Email Campaign'),
         ('seo', 'SEO / Organic'),
@@ -57,11 +58,21 @@ class Lead(models.Model):
     )
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='other', blank=True, null=True)
     campaign = models.ForeignKey(
-        'activities.Campaign',
+        'marketing.Campaign',
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='leads'
     )
+    
+    # Advanced Attribution (Enterprise)
+    utm_source = models.CharField(max_length=100, blank=True, null=True)
+    utm_medium = models.CharField(max_length=100, blank=True, null=True)
+    utm_campaign = models.CharField(max_length=100, blank=True, null=True)
+    utm_content = models.CharField(max_length=100, blank=True, null=True)
+    utm_term = models.CharField(max_length=100, blank=True, null=True)
+    
+    first_touch_source = models.CharField(max_length=255, blank=True, null=True)
+    latest_touch_source = models.CharField(max_length=255, blank=True, null=True)
 
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)

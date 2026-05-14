@@ -73,3 +73,11 @@ def has_perm(perm_name):
                 return False
             return request.user.role_fk.permissions.filter(name=perm_name).exists()
     return CustomPermission
+
+class IsAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.role == 'admin')
+
+class IsAdminOrManager(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.role in ['admin', 'manager'])

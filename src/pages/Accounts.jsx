@@ -10,8 +10,13 @@ export default function Accounts() {
   const [accounts, setAccounts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', industry: '', size: '' });
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editAccountId, setEditAccountId] = useState(null);
+  const [formData, setFormData] = useState({ name: '', industry: '', website: '', location: '', phone: '', company_size: '', annual_revenue: '' });
   const { addToast } = useToast();
 
   const fetchAccounts = async () => {
@@ -32,26 +37,15 @@ export default function Accounts() {
             id: acc.id,
             name: acc.name,
             industry: acc.industry || 'General',
-            size: 'N/A',
-            contacts: 'View', // Backend needs a separate count or view if required
-            openDeals: 0,
-            value: 0,
-            location: 'Global'
+            size: acc.company_size || 'N/A',
+            contacts: acc.contacts_count || 0,
+            openDeals: acc.open_deals_count || 0,
+            value: acc.pipeline_value || 0,
+            location: acc.location || 'N/A',
+            website: acc.website || '',
+            phone: acc.phone || '',
+            annual_revenue: acc.annual_revenue || ''
          };
-      });
-      
-      // Attach deals to accounts
-      fetchedDeals.forEach(deal => {
-         // Deal's company_name is now returned natively, but let's try to match by account ID if we had it.
-         // Actually, Deal has a nested contact, and Contact has an account. 
-         // Since DealSerializer doesn't return account_id directly, we match by company_name for now.
-         if (deal.company_name) {
-            const acc = Object.values(accountMap).find(a => a.name === deal.company_name);
-            if (acc) {
-               acc.openDeals += 1;
-               acc.value += parseFloat(deal.value || 0);
-            }
-         }
       });
       
       setAccounts(Object.values(accountMap));
@@ -66,25 +60,66 @@ export default function Accounts() {
     fetchAccounts();
   }, []);
 
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const handleDeleteAccount = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this account?")) return;
+    try {
+      await accountsApi.delete(id);
+      addToast('Account deleted successfully');
+      fetchAccounts();
+    } catch (err) {
+      addToast('Failed to delete account', 'error');
+    }
+  };
+
   const handleAddAccount = async (e) => {
     e.preventDefault();
     try {
-      await accountsApi.create({
+      const payload = {
         name: formData.name,
         industry: formData.industry,
-      });
-      addToast('Account created successfully');
+        website: formData.website,
+        location: formData.location,
+        phone: formData.phone,
+        company_size: formData.company_size,
+        annual_revenue: formData.annual_revenue,
+      };
+
+      if (isEditMode) {
+        await accountsApi.update(editAccountId, payload);
+        addToast('Account updated successfully');
+      } else {
+        await accountsApi.create(payload);
+        addToast('Account created successfully');
+      }
       setIsModalOpen(false);
-      setFormData({ name: '', industry: '', size: '' });
+      setIsEditMode(false);
+      setFormData({ name: '', industry: '', website: '', location: '', phone: '', company_size: '', annual_revenue: '' });
       fetchAccounts();
     } catch (err) {
-      addToast('Failed to create account', 'error');
+      const errorMsg = err.response?.data?.website?.[0] || 'Failed to save account';
+      addToast(errorMsg, 'error');
     }
   };
 
   const filteredAccounts = accounts.filter(acc => 
     acc.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  ).sort((a, b) => {
+    if (!sortField) return 0;
+    const aVal = a[sortField];
+    const bVal = b[sortField];
+    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
 
   return (
     <div className="space-y-6 animate-fade-in max-w-[1400px] mx-auto pb-10">
@@ -137,12 +172,12 @@ export default function Accounts() {
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Account Name</th>
-                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Location</th>
-                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Industry</th>
-                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Contacts</th>
-                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600">Open Deals</th>
-                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600 text-right">Value</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600 cursor-pointer" onClick={() => handleSort('name')}>Account Name</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600 cursor-pointer" onClick={() => handleSort('location')}>Location</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600 cursor-pointer" onClick={() => handleSort('industry')}>Industry</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600 cursor-pointer" onClick={() => handleSort('contacts')}>Contacts</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600 cursor-pointer" onClick={() => handleSort('openDeals')}>Open Deals</th>
+                  <th className="px-6 py-3 text-[13px] font-medium text-gray-600 text-right cursor-pointer" onClick={() => handleSort('value')}>Value</th>
                   <th className="px-6 py-3 text-[13px] font-medium text-gray-600"></th>
                 </tr>
               </thead>
@@ -170,10 +205,44 @@ export default function Accounts() {
                     <td className="px-6 py-4 text-right">
                        <span className="text-[13px] text-gray-800">${acc.value.toLocaleString()}</span>
                     </td>
-                    <td className="px-6 py-4 text-right">
-                       <button className="text-gray-400 hover:text-gray-600 p-1">
+                    <td className="px-6 py-4 text-right relative">
+                       <button 
+                         onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === acc.id ? null : acc.id); }}
+                         className="text-gray-400 hover:text-gray-600 p-1"
+                       >
                           <MoreHorizontal className="w-4 h-4" />
                        </button>
+                       {openMenuId === acc.id && (
+                         <div className="absolute right-6 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 text-left">
+                           <button 
+                             onClick={(e) => { 
+                               e.stopPropagation(); 
+                               setIsEditMode(true);
+                               setEditAccountId(acc.id);
+                               setFormData({
+                                 name: acc.name,
+                                 industry: acc.industry,
+                                 website: acc.website,
+                                 location: acc.location === 'N/A' ? '' : acc.location,
+                                 phone: acc.phone,
+                                 company_size: acc.size === 'N/A' ? '' : acc.size,
+                                 annual_revenue: acc.annual_revenue
+                               });
+                               setIsModalOpen(true);
+                               setOpenMenuId(null); 
+                             }}
+                             className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                           >
+                             <span>Edit Account</span>
+                           </button>
+                           <button 
+                             onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc.id); setOpenMenuId(null); }}
+                             className="w-full text-left px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 flex items-center space-x-2"
+                           >
+                             <span>Delete Account</span>
+                           </button>
+                         </div>
+                       )}
                     </td>
                   </tr>
                 ))}
@@ -195,7 +264,7 @@ export default function Accounts() {
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={() => setIsModalOpen(false)} />
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl overflow-hidden relative z-10 animate-in zoom-in-95 duration-200">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-              <h3 className="text-[16px] font-semibold text-gray-800">Create Account</h3>
+              <h3 className="text-[16px] font-semibold text-gray-800">{isEditMode ? 'Edit Account' : 'Create Account'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <X className="h-5 w-5" />
               </button>
@@ -220,6 +289,42 @@ export default function Accounts() {
                       <option>Healthcare</option>
                       <option>Finance</option>
                     </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Website</div>
+                  <div className="flex-1">
+                    <input type="url" value={formData.website} onChange={e => setFormData({...formData, website: e.target.value})} className="w-full px-3 py-1.5 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="https://example.com" />
+                    <p className="text-[11px] text-slate-400 mt-1">Please enter a valid URL (e.g., https://example.com)</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Location</div>
+                  <div className="flex-1">
+                    <input type="text" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} className="w-full px-3 py-1.5 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="e.g. New York, USA" />
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Phone</div>
+                  <div className="flex-1">
+                    <input type="text" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full px-3 py-1.5 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="e.g. +1234567890" />
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Company Size</div>
+                  <div className="flex-1">
+                    <input type="text" value={formData.company_size} onChange={e => setFormData({...formData, company_size: e.target.value})} className="w-full px-3 py-1.5 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="e.g. 11-50 employees" />
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <div className="w-32 text-[13px] text-gray-600 text-right pr-4">Annual Revenue</div>
+                  <div className="flex-1">
+                    <input type="number" value={formData.annual_revenue} onChange={e => setFormData({...formData, annual_revenue: e.target.value})} className="w-full px-3 py-1.5 border border-gray-300 rounded-[4px] text-[13px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="e.g. 50000" />
                   </div>
                 </div>
               </div>

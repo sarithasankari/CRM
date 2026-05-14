@@ -26,7 +26,14 @@ class Deal(models.Model):
     notes = models.TextField(blank=True, null=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     contact = models.ForeignKey(Contact, on_delete=models.SET_NULL, null=True, blank=True)
-    campaign = models.ForeignKey('activities.Campaign', on_delete=models.SET_NULL, null=True, blank=True, related_name='campaign_deals')
+    campaign = models.ForeignKey('marketing.Campaign', on_delete=models.SET_NULL, null=True, blank=True, related_name='campaign_deals')
+
+    # Advanced Attribution (Enterprise)
+    utm_source = models.CharField(max_length=100, blank=True, null=True)
+    utm_medium = models.CharField(max_length=100, blank=True, null=True)
+    utm_campaign = models.CharField(max_length=100, blank=True, null=True)
+    utm_content = models.CharField(max_length=100, blank=True, null=True)
+    utm_term = models.CharField(max_length=100, blank=True, null=True)
 
     probability = models.IntegerField(default=20, help_text='Win probability (0–100%).')
     gravity_score = models.FloatField(default=0.0, help_text='Gravity score for physics engine.')

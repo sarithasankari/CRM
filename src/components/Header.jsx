@@ -4,7 +4,8 @@ import {
   Search, Bell, Settings, HelpCircle, Plus, 
   User, CheckSquare, LogOut, ChevronDown, 
   Zap, Command, ShieldCheck, Globe, Activity,
-  X, LayoutDashboard, Users, Briefcase, FileText, BarChart2
+  X, LayoutDashboard, Users, Briefcase, FileText, BarChart2,
+  UserPlus
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -153,18 +154,26 @@ export default function Header() {
                 </div>
                 <div className="max-h-[480px] overflow-y-auto divide-y divide-slate-50">
                   <NotificationItem 
-                    icon={<User className="w-4 h-4" />} 
+                    icon={<UserPlus className="w-4 h-4" />} 
                     iconBg="bg-indigo-50 text-indigo-600"
-                    title="Registry Sync Success" 
-                    desc="New lead 'Jason Bourne' integrated from Security Hub." 
+                    title="Intelligence Engine: New Lead" 
+                    desc="'Alpha Global' just matched your conversion profile via Google Ads." 
                     time="2m ago" 
+                    urgent={true}
                   />
                   <NotificationItem 
                     icon={<Activity className="w-4 h-4" />} 
                     iconBg="bg-blue-50 text-blue-600"
-                    title="Intelligence Threshold" 
-                    desc="Project Matrix 'Acme Corp' reached 85% velocity." 
+                    title="Revenue Threshold Alert" 
+                    desc="Monthly target reached 92% velocity. Accelerate closures." 
                     time="1h ago" 
+                  />
+                  <NotificationItem 
+                    icon={<ShieldCheck className="w-4 h-4" />} 
+                    iconBg="bg-emerald-50 text-emerald-600"
+                    title="Security Protocol: Login" 
+                    desc="New session verified from Mumbai, India (IP: 103.22.XX)." 
+                    time="3h ago" 
                   />
                 </div>
               </div>
@@ -180,8 +189,12 @@ export default function Header() {
             onClick={() => setShowProfile(!showProfile)}
             className="flex items-center space-x-4 pl-3 pr-2 py-2 bg-slate-50/50 hover:bg-slate-100 rounded-2xl transition-all border border-transparent hover:border-slate-200"
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-sm font-black shadow-lg shadow-blue-600/20">
-              {user?.first_name ? user.first_name[0].toUpperCase() : (user?.username ? user.username[0].toUpperCase() : 'U')}
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-sm font-black shadow-lg shadow-blue-600/20 overflow-hidden">
+              {user?.avatar ? (
+                <img src={user.avatar} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                user?.first_name ? user.first_name[0].toUpperCase() : (user?.username ? user.username[0].toUpperCase() : 'U')
+              )}
             </div>
             <div className="hidden lg:flex flex-col items-start pr-2">
               <span className="text-xs font-black text-slate-900 leading-none">
@@ -203,10 +216,16 @@ export default function Header() {
                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Operator Context</p>
                 </div>
                 <div className="space-y-1">
-                  <button className="w-full text-left px-4 py-3 text-[11px] font-black text-slate-600 uppercase tracking-widest hover:bg-slate-50 rounded-2xl flex items-center transition-all group">
+                  <button 
+                    onClick={() => { navigate('/profile'); setShowProfile(false); }}
+                    className="w-full text-left px-4 py-3 text-[11px] font-black text-slate-600 uppercase tracking-widest hover:bg-slate-50 rounded-2xl flex items-center transition-all group"
+                  >
                     <User className="w-4 h-4 mr-3 text-slate-400 group-hover:text-blue-600" /> Identity Matrix
                   </button>
-                  <button className="w-full text-left px-4 py-3 text-[11px] font-black text-slate-600 uppercase tracking-widest hover:bg-slate-50 rounded-2xl flex items-center transition-all group">
+                  <button 
+                    onClick={() => { navigate('/settings'); setShowProfile(false); }}
+                    className="w-full text-left px-4 py-3 text-[11px] font-black text-slate-600 uppercase tracking-widest hover:bg-slate-50 rounded-2xl flex items-center transition-all group"
+                  >
                     <Settings className="w-4 h-4 mr-3 text-slate-400 group-hover:text-blue-600" /> Logic Control
                   </button>
                 </div>
@@ -226,18 +245,24 @@ export default function Header() {
   );
 }
 
-function NotificationItem({ icon, iconBg, title, desc, time }) {
+function NotificationItem({ icon, iconBg, title, desc, time, urgent }) {
   return (
-    <div className="p-6 hover:bg-slate-50/50 cursor-pointer flex items-start transition-all group">
+    <div className="p-6 hover:bg-slate-50/50 cursor-pointer flex items-start transition-all group relative">
+      {urgent && (
+        <div className="absolute top-6 right-6 flex items-center space-x-1">
+          <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+          <span className="text-[8px] font-black text-rose-500 uppercase tracking-widest">Urgent</span>
+        </div>
+      )}
       <div className={`p-3 ${iconBg} rounded-2xl mr-4 shadow-inner group-hover:scale-110 transition-transform`}>
         {icon}
       </div>
       <div className="flex-1 space-y-1">
         <div className="flex justify-between items-start">
-           <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest">{title}</h4>
-           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{time}</span>
+           <h4 className={`text-[11px] font-black uppercase tracking-widest ${urgent ? 'text-slate-900' : 'text-slate-700'}`}>{title}</h4>
+           {!urgent && <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{time}</span>}
         </div>
-        <p className="text-[11px] text-slate-500 font-medium leading-relaxed">{desc}</p>
+        <p className="text-[11px] text-slate-500 font-medium leading-relaxed max-w-[220px]">{desc}</p>
       </div>
     </div>
   );

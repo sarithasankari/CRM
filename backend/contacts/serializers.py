@@ -2,9 +2,30 @@ from rest_framework import serializers
 from .models import Contact, Account
 
 class AccountSerializer(serializers.ModelSerializer):
+    contacts_count = serializers.SerializerMethodField()
+    open_deals_count = serializers.SerializerMethodField()
+    pipeline_value = serializers.SerializerMethodField()
+
     class Meta:
         model = Account
-        fields = '__all__'
+        fields = [
+            'id', 'name', 'industry', 'website', 'location', 'phone', 
+            'company_size', 'annual_revenue', 'contacts_count', 
+            'open_deals_count', 'pipeline_value', 'created_at'
+        ]
+
+    def get_contacts_count(self, obj):
+        return obj.contacts.count()
+
+    def get_open_deals_count(self, obj):
+        from deals.models import Deal
+        from django.db.models import Q
+        return Deal.objects.filter(Q(account=obj) | Q(contact__account=obj), status='open').distinct().count()
+
+    def get_pipeline_value(self, obj):
+        from deals.models import Deal
+        from django.db.models import Sum, Q
+        return float(Deal.objects.filter(Q(account=obj) | Q(contact__account=obj), status='open').distinct().aggregate(total=Sum('value'))['total'] or 0)
 
 class ContactSerializer(serializers.ModelSerializer):
     # Human-readable owner info for frontend display (never writable)

@@ -17,6 +17,7 @@ export default function Services() {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
   const [price, setPrice] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [billingType, setBillingType] = useState('Monthly');
   const [slaPolicy, setSlaPolicy] = useState('');
   const [description, setDescription] = useState('');
@@ -118,6 +119,12 @@ export default function Services() {
     });
   };
 
+  const filteredServices = services.filter(service => 
+    service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (service.category && service.category.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (service.description && service.description.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -132,6 +139,8 @@ export default function Services() {
             <input 
               type="text" 
               placeholder="Search services..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-blue-500 transition-all text-sm outline-none w-64"
             />
           </div>
@@ -165,7 +174,7 @@ export default function Services() {
             </button>
           </div>
         ) : (
-          services.map((service) => (
+          filteredServices.map((service) => (
             <div key={service.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:border-blue-200 transition-colors group relative">
               <div className="absolute top-6 right-6 flex items-center gap-1">
                 <button 

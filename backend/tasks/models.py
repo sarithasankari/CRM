@@ -60,7 +60,7 @@ class Task(models.Model):
     contact = models.ForeignKey('contacts.Contact', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
     account = models.ForeignKey('contacts.Account', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
     deal = models.ForeignKey('deals.Deal', on_delete=models.CASCADE, related_name="tasks", null=True, blank=True)
-    campaign = models.ForeignKey('activities.Campaign', on_delete=models.SET_NULL, null=True, blank=True, related_name='tasks')
+    campaign = models.ForeignKey('marketing.Campaign', on_delete=models.SET_NULL, null=True, blank=True, related_name='tasks')
     project = models.ForeignKey('projects.Project', on_delete=models.CASCADE, null=True, blank=True, related_name='tasks')
     milestone = models.ForeignKey('projects.Milestone', on_delete=models.CASCADE, null=True, blank=True, related_name='tasks')
     

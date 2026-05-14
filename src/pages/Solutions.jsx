@@ -21,6 +21,7 @@ export default function Solutions() {
   const [category, setCategory] = useState('');
   const [content, setContent] = useState('');
   const [tags, setTags] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const fetchSolutions = () => {
     setLoading(true);
@@ -111,9 +112,13 @@ export default function Solutions() {
     return acc;
   }, []);
 
-  const filteredArticles = selectedCategory === 'All' 
-    ? articles 
-    : articles.filter(art => (art.category || 'General') === selectedCategory);
+  const filteredArticles = articles.filter(art => {
+    const matchesCategory = selectedCategory === 'All' || (art.category || 'General') === selectedCategory;
+    const matchesSearch = art.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (art.content && art.content.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                          (art.tags && art.tags.toLowerCase().includes(searchTerm.toLowerCase()));
+    return matchesCategory && matchesSearch;
+  });
 
   return (
     <div className="space-y-8 p-6 bg-slate-50/50 min-h-screen">
@@ -134,6 +139,8 @@ export default function Solutions() {
               <input 
                 type="text" 
                 placeholder="Search articles..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 pr-4 py-2.5 bg-white/90 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none w-full sm:w-64 shadow-sm"
               />
             </div>

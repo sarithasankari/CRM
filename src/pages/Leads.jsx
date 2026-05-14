@@ -991,8 +991,8 @@ export default function Leads() {
   const fetchLeads = useCallback(async () => {
     try {
       setIsLoading(true);
-      const data = await leadsApi.getAll();
-      setLeads(data.results || []);
+      const data = await leadsApi.getAll({ ordering: '-created_at' });
+      setLeads(Array.isArray(data) ? data : data.results || []);
       setError(null);
     } catch (err) {
       setError('Failed to load leads. Please try again later.');
@@ -1550,7 +1550,21 @@ export default function Leads() {
             />
           </div>
           
-          <button className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+          <button 
+            onClick={() => {
+              const csvContent = "data:text/csv;charset=utf-8,name,company,email,status\n" + 
+                leads.map(l => `"${l.name || ''}","${l.company || ''}","${l.email || ''}","${l.status || ''}"`).join("\n");
+              const encodedUri = encodeURI(csvContent);
+              const link = document.createElement("a");
+              link.setAttribute("href", encodedUri);
+              link.setAttribute("download", "leads.csv");
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            }}
+            className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+            title="Download CSV"
+          >
             <Download className="w-4 h-4" />
           </button>
           
@@ -1649,24 +1663,12 @@ export default function Leads() {
           <Table columns={columns} data={filteredLeads} />
         </div>
 
-        {/* Custom Pagination */}
+        {/* Custom Pagination (Simplified) */}
         <div className="px-8 py-6 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
           <div className="flex items-center space-x-4">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-              Displaying <span className="text-slate-900">{filteredLeads.length}</span> of <span className="text-slate-900">{leads.length}</span> results
+              Showing all <span className="text-slate-900">{filteredLeads.length}</span> leads
             </span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button className="w-10 h-10 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 disabled:opacity-50 transition-all shadow-sm" disabled>
-              <ArrowDown className="w-4 h-4 rotate-90" />
-            </button>
-            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-              <button className="px-4 py-1.5 rounded-lg text-xs font-black bg-blue-600 text-white shadow-md shadow-blue-600/20">1</button>
-              <button className="px-4 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:bg-slate-50 transition-all">2</button>
-            </div>
-            <button className="w-10 h-10 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 disabled:opacity-50 transition-all shadow-sm" disabled>
-              <ArrowDown className="w-4 h-4 -rotate-90" />
-            </button>
           </div>
         </div>
       </div>

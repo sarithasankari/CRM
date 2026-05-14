@@ -1,170 +1,227 @@
 import React, { useState, useEffect } from 'react';
-import { User, Mail, Shield, Key, Camera, Loader2, Globe, Bell, Smartphone, Lock, Eye, CreditCard, LogOut, Check } from 'lucide-react';
+import { User, Mail, Shield, Key, Camera, Loader2, Globe, Bell, Smartphone, Lock, Eye, CreditCard, LogOut, Check, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/api';
 import { useToast } from '../context/ToastContext';
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [profile, setProfile] = useState({
     first_name: '',
     last_name: '',
     email: '',
     phone: '',
     username: '',
-    bio: ''
+    bio: '',
+    avatar: '',
+    language: 'English',
+    timezone: 'UTC-8',
+    theme: 'dark',
+    notifications: {
+      email: true,
+      sms: false,
+      push: true,
+      privacy: {
+        profile_visibility: true,
+        activity_status: true,
+        data_sharing: false,
+        two_factor_prompt: true
+      }
+    }
   });
+  
   const [passwords, setPasswords] = useState({
     current_password: '',
     new_password: '',
     confirm_password: ''
   });
-  const [preferences, setPreferences] = useState({
-    language: 'English',
-    timezone: 'UTC-8',
-    theme: 'light',
-    notifications: {
-      email: true,
-      sms: false,
-      push: true
-    }
-  });
+  
   const [activeTab, setActiveTab] = useState('personal');
+  const [loginHistory, setLoginHistory] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const { addToast } = useToast();
 
+  // Mock data for fallback (Activity Section)
+  const [mockActivity, setMockActivity] = useState([
+    { id: 1, title: 'Security Alert', message: 'New login detected from Chrome on Linux.', time: '10m ago', unread: true },
+    { id: 2, title: 'Profile Updated', message: 'Your profile information was successfully updated.', time: '1h ago', unread: false },
+  ]);
+
   useEffect(() => {
-    if (user) {
-      setProfile({
-        first_name: user.first_name || '',
-        last_name: user.last_name || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        username: user.username || '',
-        bio: user.bio || ''
-      });
-      setPreferences({
-        language: user.language || 'English',
-        timezone: user.timezone || 'UTC-8',
-        theme: user.theme || 'light',
+    fetchProfileData();
+    fetchHistory();
+    fetchSessions();
+    fetchAuditLogs();
+  }, []);
+
+  const fetchSessions = async () => {
+    try {
+      const data = await authService.getSessions();
+      setSessions(data.results || data);
+    } catch (error) {
+      console.error("Failed to fetch sessions", error);
+    }
+  };
+
+  const fetchAuditLogs = async () => {
+    try {
+      const data = await authService.getAuditLogs();
+      setAuditLogs(data.results || data);
+    } catch (error) {
+      console.error("Failed to fetch audit logs", error);
+    }
+  };
+
+  const fetchProfileData = async () => {
+    try {
+      setIsLoading(true);
+      const data = await authService.getCurrentUser();
+      setProfile(prev => ({
+        ...prev,
+        ...data,
         notifications: {
-          email: true,
-          sms: false,
-          push: true
+          ...prev.notifications,
+          ...data.notifications
         }
-      });
+      }));
+    } catch (error) {
+      console.error("Failed to fetch profile", error);
+      addToast('Failed to load profile data', 'error');
+    } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  };
+
+  const fetchHistory = async () => {
+    try {
+      const data = await authService.getLoginHistory();
+      // Handle paginated response
+      const historyArray = data.results || data;
+      setLoginHistory(Array.isArray(historyArray) ? historyArray.slice(0, 5) : []);
+    } catch (error) {
+      console.error("Failed to fetch login history", error);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setProfile(prev => ({ ...prev, [name]: value }));
   };
 
-  const handlePasswordChange = (e) => {
-    const { name, value } = e.target;
-    setPasswords(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handlePreferenceChange = async (name, value) => {
-    setPreferences(prev => ({ ...prev, [name]: value }));
+  const handlePrivacyToggle = async (key) => {
+    const currentPrivacy = profile.notifications?.privacy || {};
+    const updatedPrivacy = {
+      ...currentPrivacy,
+      [key]: !currentPrivacy[key]
+    };
+    
+    const updatedNotifications = {
+      ...profile.notifications,
+      privacy: updatedPrivacy
+    };
+    
+    setProfile(prev => ({
+      ...prev,
+      notifications: updatedNotifications
+    }));
+    
     try {
-      await authService.updateProfile({ [name]: value });
-      addToast('Preference updated!', 'success');
+      await authService.updateProfile({ notifications: updatedNotifications });
+      addToast('Privacy setting updated!', 'success');
     } catch (error) {
-      console.error("Failed to update preference", error);
-      addToast('Failed to update preference', 'error');
+      console.error("Failed to update privacy setting", error);
+      addToast('Failed to update privacy setting', 'error');
+      // Revert state on failure
+      setProfile(prev => ({
+        ...prev,
+        notifications: {
+          ...prev.notifications,
+          privacy: currentPrivacy
+        }
+      }));
     }
   };
 
-  const handleNotificationToggle = (key) => {
-    setPreferences(prev => ({
-      ...prev,
-      notifications: {
-        ...prev.notifications,
-        [key]: !prev.notifications[key]
-      }
-    }));
-  };
-
   const handleSaveProfile = async () => {
+    setIsSaving(true);
     try {
-      await authService.updateProfile(profile);
+      const { avatar, ...updateData } = profile;
+      const updatedUser = await authService.updateProfile(updateData);
+      setUser(updatedUser);
       addToast('Profile updated successfully!', 'success');
     } catch (error) {
       console.error("Failed to update profile", error);
       addToast('Failed to update profile', 'error');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleUpdatePassword = async () => {
-    if (passwords.new_password !== passwords.confirm_password) {
-      addToast('New passwords do not match!', 'error');
-      return;
-    }
+  const handleThemeToggle = async () => {
+    const newTheme = profile.theme === 'light' ? 'dark' : 'light';
+    setProfile(prev => ({ ...prev, theme: newTheme }));
     try {
-      await authService.changePassword({
-        current_password: passwords.current_password,
-        new_password: passwords.new_password
-      });
-      addToast('Password updated successfully!', 'success');
-      setPasswords({ current_password: '', new_password: '', confirm_password: '' });
+      await authService.updateProfile({ theme: newTheme });
+      addToast(`Theme switched to ${newTheme}!`, 'success');
     } catch (error) {
-      console.error("Failed to update password", error);
-      addToast(error.response?.data?.error || 'Failed to update password', 'error');
+      console.error("Failed to update theme", error);
+      setProfile(prev => ({ ...prev, theme: profile.theme }));
     }
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      <div className="flex items-center justify-center h-64 bg-black text-white">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
       </div>
     );
   }
 
   const menuItems = [
     { id: 'personal', icon: User, label: 'Personal Information' },
-    { id: 'security', icon: Key, label: 'Security Settings' },
-    { id: 'preferences', icon: Globe, label: 'Account Preferences' },
-    { id: 'notifications', icon: Bell, label: 'Notifications' },
     { id: 'privacy', icon: Lock, label: 'Privacy Settings' },
+    { id: 'security', icon: Key, label: 'Security Settings' },
     { id: 'devices', icon: Smartphone, label: 'Connected Devices' },
+    { id: 'activity', icon: Bell, label: 'Recent Activity' },
   ];
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 p-6 ${profile.theme === 'dark' ? 'bg-black text-white' : 'bg-white text-black'} min-h-screen transition-colors duration-300`}>
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Account Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">Manage your personal information, security, and preferences.</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-black uppercase tracking-tighter">Profile Settings</h1>
+          <p className="text-sm text-slate-500 mt-1">Manage your personal information, security, and privacy.</p>
+        </div>
+        <button 
+          onClick={handleThemeToggle}
+          className="p-3 rounded-full border border-slate-800 hover:bg-slate-900 transition-colors"
+        >
+          {profile.theme === 'dark' ? <Sun className="w-5 h-5 text-yellow-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         {/* Left Sidebar Navigation */}
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-3xl border border-slate-100 p-4 shadow-sm space-y-1">
+          <div className="bg-slate-950 rounded-3xl border border-slate-800 p-4 shadow-xl space-y-1">
             {menuItems.map((item) => (
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
                 className={`w-full flex items-center px-4 py-3 text-sm font-bold rounded-2xl transition-all ${
                   activeTab === item.id
-                    ? 'bg-blue-50 text-blue-600'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:bg-slate-900 hover:text-white'
                 }`}
               >
-                <item.icon className={`w-4 h-4 mr-3 ${activeTab === item.id ? 'text-blue-600' : 'text-slate-400'}`} />
+                <item.icon className={`w-4 h-4 mr-3 ${activeTab === item.id ? 'text-white' : 'text-slate-500'}`} />
                 {item.label}
               </button>
             ))}
-            <div className="pt-4 mt-4 border-t border-slate-100">
-              <button className="w-full flex items-center px-4 py-3 text-sm font-bold rounded-2xl text-red-600 hover:bg-red-50 transition-all">
-                <LogOut className="w-4 h-4 mr-3 text-red-500" />
-                Logout
-              </button>
-            </div>
           </div>
         </div>
 
@@ -172,22 +229,9 @@ export default function Profile() {
         <div className="lg:col-span-3">
           {/* Personal Information Section */}
           {activeTab === 'personal' && (
-            <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm space-y-6">
-              <div className="flex items-center space-x-4">
-                <div className="relative">
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-2xl font-black">
-                    {profile.first_name?.[0] || 'U'}
-                  </div>
-                  <button className="absolute bottom-0 right-0 p-1.5 bg-white rounded-full border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
-                    <Camera className="w-3.5 h-3.5 text-slate-600" />
-                  </button>
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Profile Picture</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">PNG, JPG or GIF. Max 2MB.</p>
-                </div>
-              </div>
-
+            <div className="bg-slate-950 rounded-3xl border border-slate-800 p-6 shadow-xl space-y-6">
+              <h3 className="text-xl font-black uppercase tracking-wider mb-4">Personal Information</h3>
+              
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">First Name</label>
@@ -196,7 +240,7 @@ export default function Profile() {
                     name="first_name"
                     value={profile.first_name}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl focus:border-blue-500 focus:bg-black transition-all text-sm outline-none text-white"
                   />
                 </div>
                 <div>
@@ -206,24 +250,18 @@ export default function Profile() {
                     name="last_name"
                     value={profile.last_name}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl focus:border-blue-500 focus:bg-black transition-all text-sm outline-none text-white"
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Email Address</label>
-                  <div className="relative">
-                    <input 
-                      type="email" 
-                      name="email"
-                      value={profile.email}
-                      readOnly
-                      className="w-full px-4 py-3 bg-slate-100 border border-transparent rounded-xl text-sm outline-none text-slate-600 cursor-not-allowed"
-                    />
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center text-xs font-bold text-green-600">
-                      <Check className="w-3.5 h-3.5 mr-1" />
-                      Verified
-                    </div>
-                  </div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Email Address (Read Only)</label>
+                  <input 
+                    type="email" 
+                    name="email"
+                    value={profile.email}
+                    readOnly
+                    className="w-full px-4 py-3 bg-slate-800 border border-transparent rounded-xl text-sm outline-none text-slate-400 cursor-not-allowed"
+                  />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Phone Number</label>
@@ -232,18 +270,21 @@ export default function Profile() {
                     name="phone"
                     value={profile.phone}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl focus:border-blue-500 focus:bg-black transition-all text-sm outline-none text-white"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Username</label>
-                  <input 
-                    type="text" 
-                    name="username"
-                    value={profile.username}
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Language</label>
+                  <select 
+                    name="language"
+                    value={profile.language}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
-                  />
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl focus:border-blue-500 focus:bg-black transition-all text-sm outline-none text-white"
+                  >
+                    <option>English</option>
+                    <option>Spanish</option>
+                    <option>French</option>
+                  </select>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Bio</label>
@@ -252,192 +293,195 @@ export default function Profile() {
                     value={profile.bio}
                     onChange={handleChange}
                     rows="4"
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none resize-none"
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl focus:border-blue-500 focus:bg-black transition-all text-sm outline-none resize-none text-white"
                     placeholder="Tell us a little about yourself..."
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-                <button className="px-5 py-2.5 bg-slate-100 text-slate-700 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-200 transition-colors">
-                  Cancel
-                </button>
+              <div className="flex justify-end pt-4 border-t border-slate-800">
                 <button 
                   onClick={handleSaveProfile}
-                  className="px-5 py-2.5 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                  disabled={isSaving}
+                  className="px-6 py-3 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20 flex items-center"
                 >
+                  {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Save Changes
                 </button>
               </div>
             </div>
           )}
 
-          {/* Security Settings Section */}
-          {activeTab === 'security' && (
-            <div className="space-y-6">
-              {/* Password Card */}
-              <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm space-y-4">
-                <h3 className="text-base font-bold text-slate-900 mb-2">Change Password</h3>
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Current Password</label>
-                  <input 
-                    type="password" 
-                    name="current_password"
-                    value={passwords.current_password}
-                    onChange={handlePasswordChange}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">New Password</label>
-                  <input 
-                    type="password" 
-                    name="new_password"
-                    value={passwords.new_password}
-                    onChange={handlePasswordChange}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Confirm New Password</label>
-                  <input 
-                    type="password" 
-                    name="confirm_password"
-                    value={passwords.confirm_password}
-                    onChange={handlePasswordChange}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none"
-                  />
-                </div>
-                <div className="flex justify-end pt-2">
-                  <button 
-                    onClick={handleUpdatePassword}
-                    className="px-5 py-2.5 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/20"
-                  >
-                    Update Password
-                  </button>
-                </div>
-              </div>
-
-              {/* 2FA Card */}
-              <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Two-Factor Authentication</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Add an extra layer of security to your account.</p>
-                </div>
-                <button className="w-12 h-6 bg-slate-200 rounded-full relative p-0.5 transition-colors focus:outline-none">
-                  <div className="w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform" />
-                </button>
-              </div>
-
-              {/* Recent Activity Card */}
-              <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm space-y-4">
-                <h3 className="text-base font-bold text-slate-900 mb-2">Recent Login Activity</h3>
-                <div className="space-y-3">
-                  {[
-                    { device: 'MacBook Pro', location: 'San Francisco, USA', time: 'Active now', icon: Smartphone },
-                    { device: 'iPhone 13', location: 'London, UK', time: '2 hours ago', icon: Smartphone },
-                  ].map((activity, index) => (
-                    <div key={index} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-                      <div className="flex items-center">
-                        <activity.icon className="w-5 h-5 text-slate-400 mr-3" />
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{activity.device}</p>
-                          <p className="text-xs text-slate-500">{activity.location}</p>
-                        </div>
-                      </div>
-                      <span className="text-xs font-bold text-slate-500">{activity.time}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="pt-2">
-                  <button className="text-xs font-black uppercase tracking-widest text-red-600 hover:text-red-700 transition-colors">
-                    Logout from all devices
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Account Preferences Section */}
-          {activeTab === 'preferences' && (
-            <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm space-y-6">
-              <h3 className="text-base font-bold text-slate-900 mb-2">Account Preferences</h3>
+          {/* Privacy Settings Section */}
+          {activeTab === 'privacy' && (
+            <div className="bg-slate-950 rounded-3xl border border-slate-800 p-6 shadow-xl space-y-6">
+              <h3 className="text-xl font-black uppercase tracking-wider mb-4">Privacy Settings</h3>
               
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Language</label>
-                  <select 
-                    value={preferences.language}
-                    onChange={(e) => handlePreferenceChange('language', e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none font-bold text-slate-700"
-                  >
-                    <option>English</option>
-                    <option>Spanish</option>
-                    <option>French</option>
-                    <option>German</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Timezone</label>
-                  <select 
-                    value={preferences.timezone}
-                    onChange={(e) => handlePreferenceChange('timezone', e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-blue-500 focus:bg-white transition-all text-sm outline-none font-bold text-slate-700"
-                  >
-                    <option>UTC-8 (Pacific Time)</option>
-                    <option>UTC-5 (Eastern Time)</option>
-                    <option>UTC+0 (London)</option>
-                    <option>UTC+1 (Paris)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">Theme Mode</h4>
-                  <p className="text-xs text-slate-500">Switch between light and dark themes.</p>
-                </div>
-                <div className="flex bg-slate-100 p-1 rounded-xl">
-                  <button 
-                    onClick={() => handlePreferenceChange('theme', 'light')}
-                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${preferences.theme === 'light' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
-                  >
-                    Light
-                  </button>
-                  <button 
-                    onClick={() => handlePreferenceChange('theme', 'dark')}
-                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${preferences.theme === 'dark' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
-                  >
-                    Dark
-                  </button>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-100">
-                <h4 className="text-sm font-bold text-slate-900 mb-4">Notification Preferences</h4>
-                <div className="space-y-3">
-                  {Object.entries(preferences.notifications).map(([key, value]) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <span className="text-sm font-bold text-slate-700 uppercase tracking-wide text-xs">{key} Notifications</span>
+              <div className="space-y-4">
+                {[
+                  { id: 'profile_visibility', label: 'Public Profile', description: 'Make your profile visible to other team members.' },
+                  { id: 'activity_status', label: 'Activity Status', description: 'Show when you are active in the system.' },
+                  { id: 'data_sharing', label: 'Anonymized Data Sharing', description: 'Share anonymized usage data to help improve the CRM.' },
+                  { id: 'two_factor_prompt', label: 'Always Prompt 2FA', description: 'Require 2FA on every login attempt.' },
+                ].map(item => {
+                  const val = profile.notifications?.privacy?.[item.id] ?? false;
+                  return (
+                    <div key={item.id} className="flex items-center justify-between py-3 border-b border-slate-800 last:border-0">
+                      <div>
+                        <p className="text-sm font-bold text-white">{item.label}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{item.description}</p>
+                      </div>
                       <button 
-                        onClick={() => handleNotificationToggle(key)}
-                        className={`w-12 h-6 rounded-full relative p-0.5 transition-colors focus:outline-none ${value ? 'bg-blue-600' : 'bg-slate-200'}`}
+                        onClick={() => handlePrivacyToggle(item.id)}
+                        className={`w-12 h-6 rounded-full relative p-0.5 transition-colors focus:outline-none ${val ? 'bg-blue-600' : 'bg-slate-700'}`}
                       >
-                        <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${value ? 'translate-x-6' : 'translate-x-0'}`} />
+                        <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${val ? 'translate-x-6' : 'translate-x-0'}`} />
                       </button>
                     </div>
-                  ))}
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Security Section */}
+          {activeTab === 'security' && (
+            <div className="bg-slate-950 rounded-3xl border border-slate-800 p-6 shadow-xl space-y-6">
+              <h3 className="text-xl font-black uppercase tracking-wider mb-4">Security Settings</h3>
+              
+              <div className="space-y-6">
+                {/* Active Sessions */}
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-sm font-black text-slate-400 uppercase tracking-wider">Active Sessions</h4>
+                    <button 
+                      onClick={async () => {
+                        await authService.logoutAllSessions();
+                        fetchSessions();
+                        addToast('All other sessions terminated.', 'success');
+                      }}
+                      className="text-xs font-bold text-red-500 hover:text-red-400 transition-colors"
+                    >
+                      Logout All Other Devices
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {sessions.length > 0 ? (
+                      sessions.map(session => (
+                        <div key={session.id} className="flex items-center justify-between p-4 bg-slate-900 rounded-2xl border border-slate-800">
+                          <div className="flex items-center space-x-4">
+                            <div className="p-2 bg-slate-800 rounded-lg">
+                              <Smartphone className="w-5 h-5 text-slate-400" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-white">
+                                {session.browser} on {session.os}
+                                {session.is_active && session.session_key === localStorage.getItem('session_id') && (
+                                  <span className="ml-2 text-[10px] font-black uppercase tracking-widest text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full">Current</span>
+                                )}
+                              </p>
+                              <p className="text-xs text-slate-500">{session.ip_address} • {session.location}</p>
+                              <p className="text-[10px] text-slate-600">Last active: {new Date(session.last_seen).toLocaleString()}</p>
+                            </div>
+                          </div>
+                          
+                          {session.is_active ? (
+                            <button 
+                              onClick={async () => {
+                                await authService.logoutSession(session.id);
+                                fetchSessions();
+                                addToast('Session terminated.', 'success');
+                              }}
+                              className="text-xs font-bold text-slate-400 hover:text-white transition-colors"
+                            >
+                              Terminate
+                            </button>
+                          ) : (
+                            <span className="text-xs font-bold text-slate-600">Inactive</span>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500">No active sessions found.</p>
+                    )}
+                  </div>
+                </div>
+                
+                <hr className="border-slate-800" />
+                
+                {/* Audit Timeline */}
+                <div>
+                  <h4 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-4">Audit Timeline</h4>
+                  <div className="space-y-4">
+                    {auditLogs.length > 0 ? (
+                      auditLogs.map(log => (
+                        <div key={log.id} className="flex items-start space-x-3">
+                          <div className="w-2 h-2 mt-1.5 rounded-full bg-blue-500" />
+                          <div>
+                            <p className="text-sm font-bold text-white">{log.action_type}</p>
+                            <p className="text-xs text-slate-400 mt-0.5">{log.module} • {log.ip_address}</p>
+                            <p className="text-[10px] text-slate-600 mt-1">{new Date(log.timestamp).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500">No audit logs found.</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Placeholder for other tabs */}
-          {(activeTab === 'notifications' || activeTab === 'privacy' || activeTab === 'devices') && (
-            <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm flex flex-col items-center justify-center h-64 text-slate-500">
-              <Shield className="w-12 h-12 text-slate-300 mb-4" />
-              <p className="text-sm font-bold uppercase tracking-widest text-xs">Section Under Construction</p>
-              <p className="text-xs mt-1">This section will be available in a future update.</p>
+          {/* Connected Devices Section */}
+          {activeTab === 'devices' && (
+            <div className="bg-slate-950 rounded-3xl border border-slate-800 p-6 shadow-xl space-y-6">
+              <h3 className="text-xl font-black uppercase tracking-wider mb-4">Connected Devices</h3>
+              
+              <div className="space-y-4">
+                {loginHistory.length > 0 ? (
+                  loginHistory.map((device, index) => (
+                    <div key={index} className="flex items-center justify-between py-3 border-b border-slate-800 last:border-0">
+                      <div className="flex items-center">
+                        <Smartphone className="w-5 h-5 text-slate-500 mr-3" />
+                        <div>
+                          <p className="text-sm font-bold text-white">{device.user_agent || 'Unknown Device'}</p>
+                          <p className="text-xs text-slate-500">{device.ip_address} • {device.location || 'Unknown Location'}</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-slate-400">{new Date(device.timestamp).toLocaleString()}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500">No recent login history found.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Activity Section (Fallback Mock) */}
+          {activeTab === 'activity' && (
+            <div className="bg-slate-950 rounded-3xl border border-slate-800 p-6 shadow-xl space-y-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-black uppercase tracking-wider">Recent Activity</h3>
+                <span className="text-[10px] font-black uppercase tracking-widest text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded-full">Mock Fallback</span>
+              </div>
+              
+              <div className="space-y-4">
+                {mockActivity.map(activity => (
+                  <div key={activity.id} className={`flex items-start justify-between p-4 rounded-2xl ${activity.unread ? 'bg-blue-600/10 border border-blue-600/20' : 'bg-slate-900'}`}>
+                    <div className="flex items-start space-x-3">
+                      <div className={`w-2 h-2 mt-1.5 rounded-full ${activity.unread ? 'bg-blue-500' : 'bg-slate-500'}`} />
+                      <div>
+                        <p className="text-sm font-bold text-white">{activity.title}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{activity.message}</p>
+                        <p className="text-[10px] text-slate-600 mt-1">{activity.time}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

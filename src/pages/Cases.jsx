@@ -25,6 +25,7 @@ export default function Cases() {
   const [loading, setLoading] = useState(true);
   const [contacts, setContacts] = useState([]); // For dropdown
   const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const fetchCases = () => {
     setLoading(true);
@@ -118,6 +119,29 @@ export default function Cases() {
     setCategory('General');
     setDuplicateWarning(null);
   };
+
+  const handleDrop = (e, newStatus) => {
+    e.preventDefault();
+    const caseId = e.dataTransfer.getData('text/plain');
+    const caseToUpdate = cases.find(c => c.id.toString() === caseId);
+    if (!caseToUpdate || caseToUpdate.status === newStatus) return;
+
+    casesApi.update(caseId, { ...caseToUpdate, status: newStatus })
+      .then(() => {
+        fetchCases();
+        addToast(`Case moved to ${newStatus}`, 'success');
+      })
+      .catch(err => {
+        console.error(err);
+        addToast('Failed to update case status', 'error');
+      });
+  };
+
+  const filteredCases = cases.filter(c => 
+    c.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.case_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.contact_name && c.contact_name.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
   const handleMerge = (duplicateId) => {
     if (!selectedCase) return;
@@ -213,6 +237,8 @@ export default function Cases() {
               <input 
                 type="text" 
                 placeholder="Search cases..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 pr-4 py-2.5 bg-white/90 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm outline-none w-full sm:w-64 shadow-sm"
               />
             </div>
@@ -235,7 +261,7 @@ export default function Cases() {
             Filter
           </button>
           <span className="text-xs text-slate-400">|</span>
-          <span className="text-xs text-slate-500 font-medium">Showing {cases.length} cases</span>
+          <span className="text-xs text-slate-500 font-medium">Showing {filteredCases.length} cases</span>
         </div>
         <div className="flex items-center gap-1 border border-slate-200 rounded-lg p-0.5">
           <button 
@@ -286,7 +312,7 @@ export default function Cases() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {cases.map((c) => c && (
+                {filteredCases.map((c) => c && (
                   <tr 
                     key={c.id} 
                     className="hover:bg-white transition-all duration-200 cursor-pointer group"
@@ -357,17 +383,24 @@ export default function Cases() {
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {['New', 'Open', 'In Progress', 'Resolved'].map((status) => (
-            <div key={status} className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+            <div 
+              key={status} 
+              className="bg-slate-50 rounded-2xl p-4 border border-slate-100"
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => handleDrop(e, status)}
+            >
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-black uppercase tracking-widest text-slate-500">{status}</span>
-                <span className="text-xs text-slate-400 font-bold">{cases.filter(c => c.status === status).length}</span>
+                <span className="text-xs text-slate-400 font-bold">{filteredCases.filter(c => c.status === status).length}</span>
               </div>
               <div className="space-y-3">
-                {cases.filter(c => c && c.status === status).map(c => (
+                {filteredCases.filter(c => c && c.status === status).map(c => (
                   <div 
                     key={c.id} 
                     className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-blue-200 transition-colors cursor-pointer"
                     onClick={() => setSelectedCase(c)}
+                    draggable
+                    onDragStart={e => e.dataTransfer.setData('text/plain', c.id.toString())}
                   >
                     <div className="text-xs font-bold text-blue-600 mb-1">{c.case_id}</div>
                     <div className="text-sm font-bold text-slate-900 mb-2">{c.subject}</div>
