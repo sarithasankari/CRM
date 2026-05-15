@@ -389,15 +389,17 @@ export default function Tasks() {
         participants: [selectedTask.owner || 'Sales Rep', meetingData.title.split(': ').pop() || 'Lead'],
       });
 
-      // 2. Create the Task record (as a placeholder/reminder)
-      await tasksApi.create(meetingData);
-      
-      // 3. Complete the current Follow-up task
-      if (selectedTask && selectedTask.task_type === 'follow_up') {
-        await tasksApi.completeTask(selectedTask.id, { 
-          outcome: 'success', 
-          notes: `Scheduled ${meetingData.metadata.meeting_type} meeting.` 
+      // 2. Update the current task with scheduling info instead of creating a new one
+      if (selectedTask) {
+        await tasksApi.patch(selectedTask.id, {
+          title: meetingData.title,
+          due_date: meetingData.meeting_start,
+          notes: meetingData.notes,
+          task_type: 'meeting',
+          metadata: meetingData.metadata
         });
+      } else {
+        await tasksApi.create(meetingData);
       }
       
       addToast("Meeting scheduled and synced with calendar!", "success");

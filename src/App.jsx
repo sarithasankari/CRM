@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
+import { ThemeProvider } from './context/ThemeContext';
 import { Loader2 } from 'lucide-react';
 
 // Lazy load all pages for better performance and smaller chunks
@@ -46,7 +47,8 @@ const LoadingFallback = () => (
 
 function App() {
   return (
-    <BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/" element={<MainLayout />}>
@@ -90,6 +92,7 @@ function App() {
         </Routes>
       </Suspense>
     </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

@@ -116,6 +116,8 @@ def emit_workflow_events(sender, instance, created, **kwargs):
     Emit workflow trigger events after save.
     Handles on_create, on_update, stage_change, and on_task_complete triggers.
     """
+    from django.db import transaction
+    
     module = _module_for(sender)
     if not module:
         return
@@ -125,93 +127,97 @@ def emit_workflow_events(sender, instance, created, **kwargs):
     if hasattr(_state, key):
         delattr(_state, key)
 
-    try:
-        # Get chain_id from thread-local if this save was triggered by another workflow
-        parent_chain_id = getattr(_state, 'chain_id', None)
+    def do_dispatch():
+        try:
+            # Get chain_id from thread-local if this save was triggered by another workflow
+            parent_chain_id = getattr(_state, 'chain_id', None)
 
-        # Trigger on_create event
-        if created:
-            logger.info(f"[WorkflowSignals] Detected create for {module}:{instance.pk}")
-            
-            if module == 'meeting':
-                from django.contrib.contenttypes.models import ContentType
-                from leads.models import Lead
-                from tasks.models import Task
+            # Trigger on_create event
+            if created:
+                logger.info(f"[WorkflowSignals] Detected create for {module}:{instance.pk}")
                 
-                lead_ct = ContentType.objects.get_for_model(Lead)
-                if hasattr(instance, 'content_type') and instance.content_type == lead_ct:
-                    lead_id = instance.object_id
-                    meeting_types = ['meeting', 'discovery_meeting', 'demo_meeting', 'proposal_meeting']
-                    updated_count = Task.objects.filter(
-                        lead_id=lead_id,
-                        task_type__in=meeting_types,
-                        is_active=True
-                    ).update(status='completed', outcome='success', is_active=False)
-                    logger.info(f"[WorkflowSignals] Auto-completed {updated_count} previous meeting tasks for lead {lead_id}")
+                if module == 'meeting':
+                    from django.contrib.contenttypes.models import ContentType
+                    from leads.models import Lead
+                    from tasks.models import Task
                     
-            dispatch_event(module, 'on_create', instance, parent_chain_id=parent_chain_id)
-            return
+                    lead_ct = ContentType.objects.get_for_model(Lead)
+                    if hasattr(instance, 'content_type') and instance.content_type == lead_ct:
+                        lead_id = instance.object_id
+                        meeting_types = ['meeting', 'discovery_meeting', 'demo_meeting', 'proposal_meeting']
+                        updated_count = Task.objects.filter(
+                            lead_id=lead_id,
+                            task_type__in=meeting_types,
+                            is_active=True
+                        ).update(status='completed', outcome='success', is_active=False)
+                        logger.info(f"[WorkflowSignals] Auto-completed {updated_count} previous meeting tasks for lead {lead_id}")
+                        
+                dispatch_event(module, 'on_create', instance, parent_chain_id=parent_chain_id)
+                return
 
-        # Trigger on_update event
-        dispatch_event(module, 'on_update', instance, previous, parent_chain_id=parent_chain_id)
+            # Trigger on_update event
+            dispatch_event(module, 'on_update', instance, previous, parent_chain_id=parent_chain_id)
 
-        # Trigger stage_change when relevant field changes
-        stage_field = STAGE_FIELDS.get(module)
-        if stage_field:
-            old_val = previous.get(f'old_{stage_field}')
-            new_val = previous.get(f'new_{stage_field}')
-            if old_val != new_val:
-                logger.info(f"[WorkflowSignals] Detected stage change for {module}:{instance.pk} from {old_val} to {new_val}")
-                dispatch_event(
-                    module,
-                    'stage_change',
-                    instance,
-                    {
-                        'field': stage_field,
-                        'old_value': old_val,
-                        'new_value': new_val,
-                    },
-                    parent_chain_id=parent_chain_id
-                )
+            # Trigger stage_change when relevant field changes
+            stage_field = STAGE_FIELDS.get(module)
+            if stage_field:
+                old_val = previous.get(f'old_{stage_field}')
+                new_val = previous.get(f'new_{stage_field}')
+                if old_val != new_val:
+                    logger.info(f"[WorkflowSignals] Detected stage change for {module}:{instance.pk} from {old_val} to {new_val}")
+                    dispatch_event(
+                        module,
+                        'stage_change',
+                        instance,
+                        {
+                            'field': stage_field,
+                            'old_value': old_val,
+                            'new_value': new_val,
+                        },
+                        parent_chain_id=parent_chain_id
+                    )
 
-        # Trigger on_task_complete when task/call/meeting is completed
-        if module in {'task', 'call', 'meeting'}:
-            status_field = STAGE_FIELDS.get(module, 'status')
-            old_status = previous.get(f'old_{status_field}', '')
-            new_status = previous.get(f'new_{status_field}', '')
-            
-            if old_status not in COMPLETION_STATUSES and new_status in COMPLETION_STATUSES:
-                logger.info(f"[WorkflowSignals] Detected task completion for {module}:{instance.pk}")
-                dispatch_event(module, 'on_task_complete', instance, previous, parent_chain_id=parent_chain_id)
+            # Trigger on_task_complete when task/call/meeting is completed
+            if module in {'task', 'call', 'meeting'}:
+                status_field = STAGE_FIELDS.get(module, 'status')
+                old_status = previous.get(f'old_{status_field}', '')
+                new_status = previous.get(f'new_{status_field}', '')
                 
-                # Update Contact status if meeting is successful/interested
-                if module == 'task' and instance.task_type == 'meeting' and instance.outcome == 'success' and instance.contact:
-                    instance.contact.status = 'qualified'
-                    instance.contact.save(update_fields=['status'])
-                    logger.info(f"[WorkflowSignals] Updated Contact {instance.contact.id} status to qualified")
-                
-                # Automatically convert Lead on meeting success
-                if module == 'task' and instance.task_type == 'meeting' and instance.outcome == 'success' and instance.lead:
-                    from workflows.services import convert_lead
-                    convert_lead(instance.lead, create_deal=False)
-                    logger.info(f"[WorkflowSignals] Automatically converted Lead {instance.lead.id} on meeting success")
-                
-                # NEW: Run config-driven workflow rules
-                if module == 'task':
-                    from workflows.engine import execute_workflow_rules
-                    actions = execute_workflow_rules(instance, chain_id=parent_chain_id)
-                    logger.info(f"[WorkflowSignals] Executed workflow rules for task {instance.pk}: {actions}")
-                
-                # Chain to next workflow (task-driven automation)
-                _trigger_dependent_workflows(instance, previous, parent_chain_id=parent_chain_id)
-    except Exception as exc:
-        logger.error(
-            "[WorkflowSignals] failed for module=%s instance_id=%s: %s",
-            module,
-            instance.pk,
-            exc,
-            exc_info=True
-        )
+                if old_status not in COMPLETION_STATUSES and new_status in COMPLETION_STATUSES:
+                    logger.info(f"[WorkflowSignals] Detected task completion for {module}:{instance.pk}")
+                    dispatch_event(module, 'on_task_complete', instance, previous, parent_chain_id=parent_chain_id)
+                    
+                    # Update Contact status if meeting is successful/interested
+                    if module == 'task' and instance.task_type == 'meeting' and instance.outcome == 'success' and instance.contact:
+                        instance.contact.status = 'qualified'
+                        instance.contact.save(update_fields=['status'])
+                        logger.info(f"[WorkflowSignals] Updated Contact {instance.contact.id} status to qualified")
+                    
+                    # Automatically convert Lead on meeting success
+                    if module == 'task' and instance.task_type == 'meeting' and instance.outcome == 'success' and instance.lead:
+                        from workflows.services import convert_lead
+                        convert_lead(instance.lead, create_deal=False)
+                        logger.info(f"[WorkflowSignals] Automatically converted Lead {instance.lead.id} on meeting success")
+                    
+                    # NEW: Run config-driven workflow rules
+                    if module == 'task':
+                        from workflows.engine import execute_workflow_rules
+                        actions = execute_workflow_rules(instance, chain_id=parent_chain_id)
+                        logger.info(f"[WorkflowSignals] Executed workflow rules for task {instance.pk}: {actions}")
+                    
+                    # Chain to next workflow (task-driven automation)
+                    _trigger_dependent_workflows(instance, previous, parent_chain_id=parent_chain_id)
+        except Exception as exc:
+            logger.error(
+                "[WorkflowSignals] failed for module=%s instance_id=%s: %s",
+                module,
+                instance.pk,
+                exc,
+                exc_info=True
+            )
+
+    transaction.on_commit(do_dispatch)
+
 
 
 def _trigger_dependent_workflows(instance, previous, parent_chain_id=None):

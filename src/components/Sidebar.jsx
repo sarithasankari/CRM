@@ -6,8 +6,9 @@ import {
   CalendarDays, Package, LifeBuoy, Puzzle, Wrench, 
   FolderKanban, MessageSquare, Menu, PanelLeftClose, PanelLeftOpen,
   PieChart, Users, Building2, BarChart3, Settings, Zap,
-  LayoutGrid, Activity, ShieldCheck, Database
+  LayoutGrid, Activity, ShieldCheck, Database, RefreshCw, Cloud
 } from 'lucide-react';
+import logoImg from '../assets/logo.png';
 
 const navigationConfig = [
   { name: 'Dashboard', icon: PieChart, href: '/' },
@@ -85,10 +86,10 @@ const MenuItem = ({ item, isCollapsed, setCollapsed }) => {
         className={({ isActive }) => 
           `group flex items-center px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] rounded-2xl transition-all mb-1 relative overflow-hidden ${
             item.highlighted 
-              ? 'bg-blue-600/10 text-blue-400 hover:bg-blue-600/20' 
+              ? 'bg-[#F59E0B]/10 text-[#F59E0B] hover:bg-[#F59E0B]/20' 
               : isActive 
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-600/30 scale-[1.02]' 
-                : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                ? 'bg-[#F59E0B] text-[#F8FAFC] shadow-xl scale-[1.02]' 
+                : 'text-[#F8FAFC]/70 hover:bg-[#0F172A]/20 hover:text-[#F8FAFC]'
           }`
         }
         title={isCollapsed ? item.name : undefined}
@@ -101,11 +102,11 @@ const MenuItem = ({ item, isCollapsed, setCollapsed }) => {
                 <span>{item.name}</span>
                 {item.badge && (
                   <span className={`ml-2 px-2 py-0.5 rounded-lg text-[9px] font-black ${
-                    isNaN(parseInt(item.badge)) ? (item.highlighted ? 'bg-blue-500 text-white' : 'bg-white/10 text-slate-400') :
+                    isNaN(parseInt(item.badge)) ? (item.highlighted ? 'bg-[#F59E0B] text-[#F8FAFC]' : 'bg-[#F8FAFC]/10 text-[#F8FAFC]/50') :
                     parseInt(item.badge) === 0 ? 'hidden' :
-                    parseInt(item.badge) <= 10 ? 'bg-blue-500 text-white' :
-                    parseInt(item.badge) <= 50 ? 'bg-orange-500 text-white' :
-                    'bg-red-500 text-white'
+                    parseInt(item.badge) <= 10 ? 'bg-[#F59E0B] text-[#F8FAFC]' :
+                    parseInt(item.badge) <= 50 ? 'bg-[#F59E0B] text-[#F8FAFC]' :
+                    'bg-[#F59E0B] text-[#F8FAFC]'
                   }`}>
                     {item.badge}
                   </span>
@@ -113,7 +114,7 @@ const MenuItem = ({ item, isCollapsed, setCollapsed }) => {
               </div>
             )}
             {item.highlighted && !isActive && (
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-[#F59E0B] rounded-full animate-pulse" />
             )}
           </>
         )}
@@ -126,7 +127,7 @@ const MenuItem = ({ item, isCollapsed, setCollapsed }) => {
       <button 
         onClick={toggleExpand}
         className={`group flex items-center justify-between px-4 py-3 text-[11px] font-black uppercase tracking-[0.1em] rounded-2xl transition-all mb-1 ${
-          isChildActive ? 'text-white bg-white/5' : 'text-slate-400 hover:bg-white/5 hover:text-white'
+          isChildActive ? 'text-[#F8FAFC] bg-[#0F172A]/20' : 'text-[#F8FAFC]/70 hover:bg-[#0F172A]/20 hover:text-[#F8FAFC]'
         }`}
         title={isCollapsed ? item.name : undefined}
       >
@@ -149,8 +150,8 @@ const MenuItem = ({ item, isCollapsed, setCollapsed }) => {
                 className={({ isActive }) => 
                   `block px-3 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all ${
                     isActive 
-                      ? 'text-blue-400 bg-blue-400/5' 
-                      : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                      ? 'text-[#F59E0B] bg-[#F59E0B]/5' 
+                      : 'text-[#F8FAFC]/50 hover:text-[#F8FAFC] hover:bg-[#0F172A]/10'
                   }`
                 }
               >
@@ -187,21 +188,15 @@ export default function Sidebar() {
   );
 
   return (
-    <div className={`flex flex-col bg-slate-950 h-screen transition-all duration-500 z-20 shrink-0 border-r border-white/5 relative ${isCollapsed ? 'w-24' : 'w-72'}`}>
+    <div className={`flex flex-col bg-[#0F172A] h-screen transition-all duration-500 z-20 shrink-0 border-r border-[#F8FAFC]/10 relative ${isCollapsed ? 'w-24' : 'w-72'}`}>
       
       {/* Brand Section */}
-      <div className="flex items-center h-24 px-8 shrink-0 relative">
-        <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 rounded-[14px] bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-blue-600/20 group cursor-pointer hover:rotate-12 transition-transform">
-            <Zap className="w-6 h-6 fill-current" />
-          </div>
-          {!isCollapsed && (
-            <div className="flex flex-col">
-              <span className="text-white font-black text-lg tracking-tighter leading-none">CRM</span>
-              <span className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] mt-1.5">Unified Suite</span>
-            </div>
-          )}
-        </div>
+      <div className={`flex items-center justify-center h-24 shrink-0 relative ${isCollapsed ? 'px-2' : 'px-8'}`}>
+        <img 
+          src={logoImg} 
+          alt="Logo" 
+          className={`transition-all duration-300 ${isCollapsed ? 'w-10 h-10 object-contain' : 'h-16 w-auto'}`} 
+        />
       </div>
 
       {/* Navigation Section */}
@@ -214,22 +209,22 @@ export default function Sidebar() {
       </div>
 
       {/* Footer Info / Toggle */}
-      <div className="p-6 border-t border-white/5 bg-slate-950/50 backdrop-blur-md">
+      <div className="p-6 border-t border-[#F8FAFC]/10 bg-[#0F172A]">
         {!isCollapsed && (
           <div className="mb-6 px-2">
              <div className="flex items-center justify-between mb-2">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Logic Health</span>
-                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Optimal</span>
+                <span className="text-[9px] font-black text-[#F8FAFC]/50 uppercase tracking-widest">Logic Health</span>
+                <span className="text-[9px] font-black text-[#0F172A] uppercase tracking-widest">Optimal</span>
              </div>
-             <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full w-[85%] bg-blue-600 rounded-full" />
-             </div>
+             <div className="h-1 w-full bg-[#F8FAFC]/10 rounded-full overflow-hidden">
+                <div className="h-full w-[85%] bg-[#F59E0B] rounded-full" />
+              </div>
           </div>
         )}
         
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="flex items-center justify-center w-full py-3 text-slate-500 hover:text-white hover:bg-white/5 rounded-2xl transition-all border border-transparent hover:border-white/5"
+          className="flex items-center justify-center w-full py-3 text-[#F8FAFC]/70 hover:text-[#F8FAFC] hover:bg-[#0F172A]/20 rounded-2xl transition-all border border-transparent hover:border-[#F8FAFC]/10"
         >
           {isCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
         </button>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Table from '../components/Table';
 import { contactsApi } from '../services/api';
 import { 
@@ -7,18 +7,44 @@ import {
   Download, Globe, MessageSquare, ArrowDown
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { usePagination } from '../hooks/usePagination';
+import Pagination from '../components/Pagination';
 
 export default function Contacts() {
+  const { 
+    currentPage, 
+    rowsPerPage, 
+    totalRecords, 
+    totalPages, 
+    isLoading, 
+    error, 
+    setPage, 
+    changeRowsPerPage, 
+    loadData, 
+    setCurrentPage 
+  } = usePagination(contactsApi.getAll);
+
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [contacts, setContacts] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingContact, setEditingContact] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 4;
   const { addToast } = useToast();
+
+  // Debounce search term
+  useEffect(() => {
+    if (searchTerm !== debouncedSearchTerm) {
+      setIsSearching(true);
+    }
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setIsSearching(false);
+      setCurrentPage(1);
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [searchTerm, debouncedSearchTerm, setCurrentPage]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -45,22 +71,18 @@ export default function Contacts() {
     setIsModalOpen(true);
   };
 
-  const fetchContacts = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await contactsApi.getAll();
-      setContacts(data.results || data);
-    } catch (err) {
-      setError("Synchronization failed. Please check your network.");
-    } finally {
-      setIsLoading(false);
+  const fetchContacts = useCallback(async () => {
+    const params = {};
+    if (debouncedSearchTerm) {
+      params.search = debouncedSearchTerm;
     }
-  };
+    const data = await loadData(params);
+    setContacts(data);
+  }, [loadData, debouncedSearchTerm]);
 
   useEffect(() => {
     fetchContacts();
-  }, []);
+  }, [fetchContacts]);
 
   const handleDelete = async (id) => {
     if (!window.confirm("Archiving this contact will remove it from active pipelines. Proceed?")) return;
@@ -76,19 +98,19 @@ export default function Contacts() {
   const columns = [
     { 
       header: (
-        <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Contact Identity</div>
+        <div className="text-[10px] font-black text-[#0F172A]/50 uppercase tracking-[0.2em]">Contact Identity</div>
       ),
       accessor: 'name',
       render: (row) => {
         const initials = row.name.split(' ').map(n => n[0]).join('');
         return (
           <div className="flex items-center group">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-slate-100 to-slate-200 flex items-center justify-center text-slate-600 font-black mr-4 shadow-sm border border-white group-hover:scale-110 transition-transform">
+            <div className="h-10 w-10 rounded-xl bg-[#0F172A]/20 flex items-center justify-center text-[#0F172A]/70 font-black mr-4 shadow-sm border border-white group-hover:scale-110 transition-transform">
               {initials.substring(0, 2).toUpperCase()}
             </div>
             <div>
-              <span className="font-bold text-slate-900 block group-hover:text-blue-600 transition-colors">{row.name}</span>
-              <div className="flex items-center text-[11px] text-slate-500 font-medium mt-0.5">
+              <span className="font-bold text-[#0F172A] block group-hover:text-[#0F172A] transition-colors">{row.name}</span>
+              <div className="flex items-center text-[11px] text-[#0F172A]/70 font-medium mt-0.5">
                 <Mail className="w-3 h-3 mr-1.5 opacity-40" /> {row.email}
               </div>
             </div>
@@ -100,7 +122,7 @@ export default function Contacts() {
       header: 'Organisation', 
       accessor: 'company', 
       render: (row) => (
-        <div className="flex items-center text-slate-600 font-bold text-sm">
+        <div className="flex items-center text-[#0F172A]/70 font-bold text-sm">
           <Building2 className="w-3.5 h-3.5 mr-2 opacity-30" />
           {row.company || 'Private Entity'}
         </div>
@@ -110,7 +132,7 @@ export default function Contacts() {
       header: 'Direct Line', 
       accessor: 'phone', 
       render: (row) => (
-        <div className="flex items-center text-slate-500 font-medium text-sm">
+        <div className="flex items-center text-[#0F172A]/70 font-medium text-sm">
           <Phone className="w-3.5 h-3.5 mr-2 opacity-30" />
           {row.phone || 'Not Registered'}
         </div>
@@ -121,13 +143,13 @@ export default function Contacts() {
       accessor: 'actions',
       render: (row) => (
         <div className="flex justify-end space-x-1">
-          <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Message">
+          <button className="p-2 text-[#0F172A]/50 hover:text-[#0F172A] hover:bg-blue-50 rounded-xl transition-all" title="Message">
             <MessageSquare className="w-4 h-4" />
           </button>
-          <button onClick={() => handleEdit(row)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Edit">
+          <button onClick={() => handleEdit(row)} className="p-2 text-[#0F172A]/50 hover:text-[#0F172A] hover:bg-blue-50 rounded-xl transition-all" title="Edit">
             <Edit2 className="w-4 h-4" />
           </button>
-          <button onClick={() => handleDelete(row.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Delete">
+          <button onClick={() => handleDelete(row.id)} className="p-2 text-[#0F172A]/50 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Delete">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -135,18 +157,8 @@ export default function Contacts() {
     }
   ];
 
-  const filteredData = contacts.filter(contact => 
-    contact.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    contact.company?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const paginatedData = React.useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    const end = start + pageSize;
-    return filteredData.slice(start, end);
-  }, [filteredData, currentPage]);
-
-  const totalPages = Math.ceil(filteredData.length / pageSize);
+  // Server-side filtering and pagination are used
+  const filteredData = contacts;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -175,22 +187,25 @@ export default function Contacts() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
            <div className="flex items-center space-x-2 mb-1">
-             <UserCircle className="w-5 h-5 text-blue-600" />
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Contacts</span>
+             <UserCircle className="w-5 h-5 text-[#0F172A]" />
+             <span className="text-[10px] font-black text-[#0F172A]/50 uppercase tracking-widest">Contacts</span>
           </div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Contacts</h2>
+          <h2 className="text-3xl font-black text-[#0F172A] tracking-tight">Contacts</h2>
         </div>
         
         <div className="flex items-center space-x-3">
           <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0F172A]/50 group-focus-within:text-[#0F172A] transition-colors" />
             <input 
               type="text" 
               placeholder="Find a contact..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-72 transition-all shadow-sm"
+              className="pl-9 pr-10 py-2.5 bg-[#F8FAFC] border border-[#0F172A]/20 rounded-2xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-72 transition-all shadow-sm"
             />
+            {(isSearching || isLoading) && (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0F172A]/50 animate-spin" />
+            )}
           </div>
           <button 
             onClick={() => {
@@ -204,14 +219,14 @@ export default function Contacts() {
               link.click();
               document.body.removeChild(link);
             }}
-            className="p-2.5 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+            className="p-2.5 bg-[#F8FAFC] border border-[#0F172A]/20 rounded-2xl text-[#0F172A]/70 hover:bg-[#0F172A]/10 transition-all shadow-sm"
             title="Download CSV"
           >
             <Download className="w-4 h-4" />
           </button>
           <button 
             onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center px-6 py-2.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+            className="inline-flex items-center px-6 py-2.5 bg-[#0F172A] text-[#F8FAFC] rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
           >
             <Plus className="mr-2 w-4 h-4" />
             Register Record
@@ -220,72 +235,43 @@ export default function Contacts() {
       </div>
 
       {/* Main Container */}
-      <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px] relative">
+      <div className="bg-[#F8FAFC] rounded-[32px] border border-[#0F172A]/20 shadow-xl shadow-slate-200/40 overflow-hidden min-h-[500px] relative">
         {isLoading ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-20 backdrop-blur-[1px]">
-            <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
-            <p className="mt-4 text-xs font-black text-slate-400 uppercase tracking-widest">Syncing Identity Data...</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#F8FAFC]/80 z-20 backdrop-blur-[1px]">
+            <div className="w-12 h-12 border-4 border-[#0F172A]/10 border-t-blue-600 rounded-full animate-spin" />
+            <p className="mt-4 text-xs font-black text-[#0F172A]/50 uppercase tracking-widest">Syncing Identity Data...</p>
           </div>
         ) : error ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-white z-20">
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-[#F8FAFC] z-20">
              <div className="w-20 h-20 bg-rose-50 rounded-3xl flex items-center justify-center mb-6">
                 <AlertCircle className="w-10 h-10 text-rose-500" />
              </div>
-             <h3 className="text-xl font-black text-slate-900">Database Connection Error</h3>
-             <p className="text-slate-500 mt-2 max-w-xs font-medium">{error}</p>
-             <button onClick={fetchContacts} className="mt-8 px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-lg shadow-slate-900/20 hover:-translate-y-0.5 transition-all">
+             <h3 className="text-xl font-black text-[#0F172A]">Database Connection Error</h3>
+             <p className="text-[#0F172A]/70 mt-2 max-w-xs font-medium">{error}</p>
+             <button onClick={fetchContacts} className="mt-8 px-8 py-3 bg-[#0F172A] text-[#F8FAFC] rounded-2xl font-black text-sm shadow-lg shadow-slate-900/20 hover:-translate-y-0.5 transition-all">
                 Attempt Reconnect
              </button>
           </div>
         ) : null}
 
-        <Table columns={columns} data={paginatedData} />
+        <Table columns={columns} data={contacts} />
 
-        {/* Custom Pagination */}
-        <div className="px-8 py-6 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
-          <div className="flex items-center space-x-4">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-              Displaying <span className="text-slate-900">{filteredData.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</span>-
-              <span className="text-slate-900">{Math.min(currentPage * pageSize, filteredData.length)}</span> of 
-              <span className="text-slate-900">{filteredData.length}</span> results
-            </span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button 
-              className="w-10 h-10 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 disabled:opacity-50 transition-all shadow-sm"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-            >
-              <ArrowDown className="w-4 h-4 rotate-90" />
-            </button>
-            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <button
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currentPage === page ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20 font-black' : 'text-slate-500 hover:bg-slate-50'}`}
-                >
-                  {page}
-                </button>
-              ))}
-            </div>
-            <button 
-              className="w-10 h-10 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-400 hover:text-blue-600 hover:border-blue-200 disabled:opacity-50 transition-all shadow-sm"
-              disabled={currentPage === totalPages || totalPages === 0}
-              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-            >
-              <ArrowDown className="w-4 h-4 -rotate-90" />
-            </button>
-          </div>
-        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalRecords={totalRecords}
+          rowsPerPage={rowsPerPage}
+          onPageChange={setPage}
+          onRowsPerPageChange={changeRowsPerPage}
+        />
         
         {filteredData.length === 0 && !isLoading && (
            <div className="p-20 flex flex-col items-center justify-center text-center">
-              <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6 border border-slate-100">
+              <div className="w-24 h-24 bg-[#0F172A]/10 rounded-full flex items-center justify-center mb-6 border border-[#0F172A]/10">
                  <Globe className="w-10 h-10 text-slate-300" />
               </div>
-              <h3 className="text-xl font-black text-slate-900">No Records Found</h3>
-              <p className="text-slate-500 mt-2 font-medium">Your search criteria didn't return any active contacts.</p>
+              <h3 className="text-xl font-black text-[#0F172A]">No Records Found</h3>
+              <p className="text-[#0F172A]/70 mt-2 font-medium">Your search criteria didn't return any active contacts.</p>
            </div>
         )}
       </div>
@@ -293,16 +279,16 @@ export default function Contacts() {
       {/* Register Record Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={resetForm} />
-          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
-            <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+          <div className="fixed inset-0 bg-[#0F172A]/40 backdrop-blur-sm animate-fade-in" onClick={resetForm} />
+          <div className="bg-[#F8FAFC] rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-in zoom-in-95 duration-300">
+            <div className="px-8 py-6 border-b border-[#0F172A]/5 flex items-center justify-between">
               <div>
-                <h3 className="text-2xl font-black text-slate-900">
+                <h3 className="text-2xl font-black text-[#0F172A]">
                   {editingContact ? "Edit Contact" : "Add Contact"}
                 </h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Contact Establishment</p>
+                <p className="text-[10px] font-black text-[#0F172A]/50 uppercase tracking-widest mt-1">Contact Establishment</p>
               </div>
-              <button onClick={resetForm} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all">
+              <button onClick={resetForm} className="w-10 h-10 flex items-center justify-center rounded-full bg-[#0F172A]/10 text-[#0F172A]/50 hover:bg-rose-50 hover:text-rose-500 transition-all">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -310,30 +296,30 @@ export default function Contacts() {
             <form onSubmit={handleSubmit} className="p-8 space-y-6">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Legal Identity Name *</label>
+                  <label className="block text-[10px] font-black text-[#0F172A]/50 uppercase tracking-widest mb-2">Legal Identity Name *</label>
                   <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="input-field" placeholder="Full legal name" />
                 </div>
                 
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Electronic Mail Point *</label>
+                  <label className="block text-[10px] font-black text-[#0F172A]/50 uppercase tracking-widest mb-2">Electronic Mail Point *</label>
                   <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="input-field" placeholder="identity@domain.com" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-5">
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Contact Protocol</label>
+                    <label className="block text-[10px] font-black text-[#0F172A]/50 uppercase tracking-widest mb-2">Contact Protocol</label>
                     <input type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="input-field" placeholder="+0 000-0000" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Corporate Entity</label>
+                    <label className="block text-[10px] font-black text-[#0F172A]/50 uppercase tracking-widest mb-2">Corporate Entity</label>
                     <input type="text" value={formData.company} onChange={e => setFormData({...formData, company: e.target.value})} className="input-field" placeholder="Organisation name" />
                   </div>
                 </div>
               </div>
 
-              <div className="pt-8 mt-4 border-t border-slate-50 flex justify-end space-x-3">
-                <button type="button" onClick={resetForm} className="px-6 py-3 text-sm font-bold text-slate-400 hover:text-slate-900 transition-colors">Discard</button>
-                <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
+              <div className="pt-8 mt-4 border-t border-[#0F172A]/5 flex justify-end space-x-3">
+                <button type="button" onClick={resetForm} className="px-6 py-3 text-sm font-bold text-[#0F172A]/50 hover:text-[#0F172A] transition-colors">Discard</button>
+                <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-[#0F172A] text-[#F8FAFC] rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center">
                   {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   {editingContact ? "Save Changes" : "Register Entry"}
                 </button>

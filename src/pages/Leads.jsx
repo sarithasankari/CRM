@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Table from '../components/Table';
 import { leadsApi, contactsApi, dealsApi, activitiesApi, tasksApi, callsApi, meetingsApi } from '../services/api';
+import { usePagination } from '../hooks/usePagination';
+import Pagination from '../components/Pagination';
 import { 
   Plus, Download, ChevronDown, Calendar, ArrowDown, X, 
   Loader2, AlertCircle, Trash2, Edit2, Filter, Search,
@@ -224,26 +226,26 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
   const SIDEBAR_ITEMS = ['Overview', 'Notes', 'Emails', 'Activities', 'Deals', 'Tasks', 'Attachments'];
 
   return (
-    <div className="bg-white min-h-screen">
+    <div className="bg-[#F8FAFC] min-h-screen">
 
       {/* ── Top Action Bar ── */}
-      <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+      <div className="border-b border-[#0F172A]/20 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <button
             onClick={onBack}
-            className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1.5 text-[#0F172A]/70 hover:text-[#0F172A] hover:bg-[#0F172A]/10 rounded-lg transition-colors"
             title="Back to Leads"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center text-lg font-bold">
+          <div className="w-10 h-10 bg-[#0F172A]/10 text-[#0F172A] rounded-lg flex items-center justify-center text-lg font-bold">
             {lead.name.substring(0, 1).toUpperCase()}
           </div>
           <div>
-            <h2 className="text-[18px] font-semibold text-gray-800">
+            <h2 className="text-[18px] font-semibold text-[#0F172A]">
               {lead.name}{lead.company ? ` - ${lead.company}` : ''}
             </h2>
-            <button className="flex items-center text-[12px] text-blue-600 hover:underline mt-0.5">
+            <button className="flex items-center text-[12px] text-[#0F172A] hover:underline mt-0.5">
               <Plus className="w-3 h-3 mr-1" /> Add Tags
             </button>
           </div>
@@ -261,7 +263,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
           {/* Send Email */}
           <button
             onClick={() => setShowEmailModal(true)}
-            className="px-4 py-1.5 bg-[#1a56d9] text-white rounded-[4px] font-medium text-[13px] hover:bg-blue-700 transition-colors flex items-center gap-1.5"
+            className="px-4 py-1.5 bg-[#0F172A] text-[#F8FAFC] rounded-[4px] font-medium text-[13px] hover:bg-blue-700 transition-colors flex items-center gap-1.5"
           >
             <Mail className="w-3.5 h-3.5" /> Send Email
           </button>
@@ -269,7 +271,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
           {/* Convert */}
           <button
             onClick={onConvert}
-            className="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-[4px] text-[13px] hover:bg-gray-50 transition-colors"
+            className="px-4 py-1.5 bg-[#F8FAFC] border border-[#0F172A]/20 text-[#0F172A] font-medium rounded-[4px] text-[13px] hover:bg-[#0F172A]/5 transition-colors"
           >
             Convert
           </button>
@@ -277,7 +279,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
           {/* Edit */}
           <button
             onClick={onEdit}
-            className="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-[4px] text-[13px] hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+            className="px-4 py-1.5 bg-[#F8FAFC] border border-[#0F172A]/20 text-[#0F172A] font-medium rounded-[4px] text-[13px] hover:bg-[#0F172A]/5 transition-colors flex items-center gap-1.5"
           >
             <Edit2 className="w-3.5 h-3.5" /> Edit
           </button>
@@ -286,32 +288,32 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
           <div className="relative" ref={moreMenuRef}>
             <button
               onClick={() => setShowMoreMenu(v => !v)}
-              className="px-2 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-[4px] hover:bg-gray-50 transition-colors"
+              className="px-2 py-1.5 bg-[#F8FAFC] border border-[#0F172A]/20 text-[#0F172A] rounded-[4px] hover:bg-[#0F172A]/5 transition-colors"
             >
               <MoreHorizontal className="w-4 h-4" />
             </button>
 
             {showMoreMenu && (
-              <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1 overflow-hidden">
+              <div className="absolute right-0 top-full mt-1 w-52 bg-[#F8FAFC] border border-[#0F172A]/20 rounded-xl shadow-xl z-50 py-1 overflow-hidden">
                 <button
                   onClick={() => { onStatusChange('contacted'); setShowMoreMenu(false); }}
-                  className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  className="w-full text-left px-4 py-2.5 text-[13px] text-[#0F172A] hover:bg-[#0F172A]/5 flex items-center gap-2"
                 >
                   <CheckCircle2 className="w-4 h-4 text-amber-500" /> Mark as Contacted
                 </button>
                 <button
                   onClick={() => { onStatusChange('qualified'); setShowMoreMenu(false); }}
-                  className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  className="w-full text-left px-4 py-2.5 text-[13px] text-[#0F172A] hover:bg-[#0F172A]/5 flex items-center gap-2"
                 >
                   <CheckCircle2 className="w-4 h-4 text-blue-500" /> Mark as Qualified
                 </button>
                 <button
                   onClick={() => { onStatusChange('lost'); setShowMoreMenu(false); }}
-                  className="w-full text-left px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  className="w-full text-left px-4 py-2.5 text-[13px] text-[#0F172A] hover:bg-[#0F172A]/5 flex items-center gap-2"
                 >
                   <XCircle className="w-4 h-4 text-rose-500" /> Mark as Lost
                 </button>
-                <div className="my-1 h-px bg-gray-100" />
+                <div className="my-1 h-px bg-[#0F172A]/10" />
                 <button
                   onClick={() => { setShowMoreMenu(false); onDelete(); }}
                   className="w-full text-left px-4 py-2.5 text-[13px] text-rose-600 hover:bg-rose-50 flex items-center gap-2"
@@ -327,9 +329,9 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
       <div className="flex">
 
         {/* ── Left Sidebar — Related List ── */}
-        <div className="w-56 border-r border-gray-200 bg-white h-[calc(100vh-137px)] overflow-y-auto py-4 flex-shrink-0">
-          <h3 className="text-[13px] font-bold text-gray-500 uppercase tracking-widest px-5 mb-2">Related List</h3>
-          <ul className="text-[13px] text-gray-700">
+        <div className="w-56 border-r border-[#0F172A]/20 bg-[#F8FAFC] h-[calc(100vh-137px)] overflow-y-auto py-4 flex-shrink-0">
+          <h3 className="text-[13px] font-bold text-[#0F172A]/70 uppercase tracking-widest px-5 mb-2">Related List</h3>
+          <ul className="text-[13px] text-[#0F172A]">
             {SIDEBAR_ITEMS.map(item => {
               const key = item.toLowerCase();
               const isActive = activeSection === key;
@@ -339,8 +341,8 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                     onClick={() => handleSectionClick(item)}
                     className={`w-full text-left px-5 py-2.5 transition-colors flex items-center justify-between group ${
                       isActive
-                        ? 'bg-blue-50 text-blue-700 font-semibold border-r-2 border-blue-600'
-                        : 'hover:bg-gray-50 hover:text-blue-600'
+                        ? 'bg-[#0F172A]/10 text-blue-700 font-semibold border-r-2 border-blue-600'
+                        : 'hover:bg-[#0F172A]/5 hover:text-[#0F172A]'
                     }`}
                   >
                     <span>{item}</span>
@@ -351,13 +353,13 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
             })}
           </ul>
           <div className="px-5 mt-4 space-y-2">
-            <button className="text-[13px] text-blue-600 hover:underline flex items-center gap-1">
+            <button className="text-[13px] text-[#0F172A] hover:underline flex items-center gap-1">
               <Plus className="w-3 h-3" /> Add Related List
             </button>
           </div>
           <div className="px-5 mt-6">
-            <h3 className="text-[13px] font-bold text-gray-500 uppercase tracking-widest mb-2">Links</h3>
-            <button className="text-[13px] text-blue-600 hover:underline flex items-center gap-1">
+            <h3 className="text-[13px] font-bold text-[#0F172A]/70 uppercase tracking-widest mb-2">Links</h3>
+            <button className="text-[13px] text-[#0F172A] hover:underline flex items-center gap-1">
               <Plus className="w-3 h-3" /> Add Link
             </button>
           </div>
@@ -371,14 +373,14 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
             <div className="p-6 space-y-4">
               {/* Tab switcher */}
               <div className="flex items-center space-x-3 mb-2">
-                <div className="flex bg-white rounded-full border border-gray-200 overflow-hidden shadow-sm">
+                <div className="flex bg-[#F8FAFC] rounded-full border border-[#0F172A]/20 overflow-hidden shadow-sm">
                   <button
                     onClick={() => setActiveTab('overview')}
-                    className={`px-6 py-1.5 text-[13px] font-medium transition-colors ${activeTab === 'overview' ? 'bg-[#EBF0FA] text-[#1a56d9]' : 'text-gray-600 hover:bg-gray-50'}`}
+                    className={`px-6 py-1.5 text-[13px] font-medium transition-colors ${activeTab === 'overview' ? 'bg-[#EBF0FA] text-[#1a56d9]' : 'text-[#0F172A]/70 hover:bg-[#0F172A]/5'}`}
                   >Overview</button>
                   <button
                     onClick={() => setActiveTab('timeline')}
-                    className={`px-6 py-1.5 text-[13px] font-medium transition-colors ${activeTab === 'timeline' ? 'bg-[#EBF0FA] text-[#1a56d9]' : 'text-gray-600 hover:bg-gray-50'}`}
+                    className={`px-6 py-1.5 text-[13px] font-medium transition-colors ${activeTab === 'timeline' ? 'bg-[#EBF0FA] text-[#1a56d9]' : 'text-[#0F172A]/70 hover:bg-[#0F172A]/5'}`}
                   >Timeline</button>
                 </div>
               </div>
@@ -394,13 +396,13 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                           <h4 className="text-[12px] font-black text-amber-600 uppercase tracking-widest mb-1 flex items-center">
                             🚨 Action Required: Create Deal
                           </h4>
-                          <p className="text-[14px] font-bold text-slate-800 mt-1">
+                          <p className="text-[14px] font-bold text-[#0F172A] mt-1">
                             A successful meeting was held. Please create a deal to progress this lead.
                           </p>
                         </div>
                         <button 
                           onClick={onConvert}
-                          className="px-6 py-2 bg-amber-600 text-white rounded-lg text-[13px] font-bold hover:bg-amber-700 transition-colors shadow-md shadow-amber-600/20 flex items-center gap-2"
+                          className="px-6 py-2 bg-amber-600 text-[#F8FAFC] rounded-lg text-[13px] font-bold hover:bg-amber-700 transition-colors shadow-md shadow-amber-600/20 flex items-center gap-2"
                         >
                           <Briefcase className="w-4 h-4" /> Create Deal Now
                         </button>
@@ -417,7 +419,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                       </h4>
                       <div className="mt-3">
                         <p className="text-[12px] font-semibold text-emerald-800 uppercase tracking-wider mb-1">➡ Next Action Suggestion</p>
-                        <p className="text-[15px] font-bold text-slate-800">{suggestedNextTask}</p>
+                        <p className="text-[15px] font-bold text-[#0F172A]">{suggestedNextTask}</p>
                       </div>
                       
                       <div className="mt-3 mb-2 flex items-center gap-2">
@@ -426,7 +428,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                           id="autoCreatePref"
                           checked={autoCreatePreference}
                           onChange={(e) => setAutoCreatePreference(e.target.checked)}
-                          className="w-3.5 h-3.5 text-blue-600 rounded border-gray-300"
+                          className="w-3.5 h-3.5 text-[#0F172A] rounded border-[#0F172A]/20"
                         />
                         <label htmlFor="autoCreatePref" className="text-[12px] text-emerald-700 cursor-pointer select-none">
                           Auto-create this step next time?
@@ -435,7 +437,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
 
                       <div className="flex gap-2 mt-2">
                         <button 
-                          className="px-4 py-1.5 bg-blue-600 border border-blue-700 rounded text-[12px] font-semibold text-white hover:bg-blue-700 transition-colors"
+                          className="px-4 py-1.5 bg-[#F59E0B] border border-blue-700 rounded text-[12px] font-semibold text-[#F8FAFC] hover:bg-blue-700 transition-colors"
                           onClick={async () => {
                             try {
                               if (autoCreatePreference) {
@@ -451,7 +453,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                           [ Create ]
                         </button>
                         <button 
-                          className="px-4 py-1.5 bg-white border border-emerald-300 rounded text-[12px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
+                          className="px-4 py-1.5 bg-[#F8FAFC] border border-emerald-300 rounded text-[12px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
                           onClick={() => setSuggestedNextTask(null)}
                         >
                           [ Skip ]
@@ -472,13 +474,13 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                       </div>
                       <div className="flex items-center justify-between mt-2">
                         <div>
-                          <p className="text-[15px] font-semibold text-slate-800">
+                          <p className="text-[15px] font-semibold text-[#0F172A]">
                             {currentTask.title} 
                           </p>
-                          <p className="text-[13px] text-slate-500 mt-0.5">
-                            Due: <span className="font-medium text-slate-700">{currentTask.due_date ? dayjs(currentTask.due_date).format('MMM D') : 'N/A'}</span>
-                            <span className="mx-2 text-slate-300">|</span>
-                            Priority: <span className={`font-bold ${currentTask.priority === 'high' ? 'text-rose-600' : 'text-slate-700'}`}>{currentTask.priority?.toUpperCase()}</span>
+                          <p className="text-[13px] text-[#0F172A]/70 mt-0.5">
+                            Due: <span className="font-medium text-[#0F172A]">{currentTask.due_date ? dayjs(currentTask.due_date).format('MMM D') : 'N/A'}</span>
+                            <span className="mx-2 text-[#0F172A]/30">|</span>
+                            Priority: <span className={`font-bold ${currentTask.priority === 'high' ? 'text-rose-600' : 'text-[#0F172A]'}`}>{currentTask.priority?.toUpperCase()}</span>
                           </p>
                         </div>
                         <div className="flex gap-2">
@@ -486,7 +488,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                             <>
                               {currentTask.task_type === 'call' && (
                                 <button 
-                                  className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-[12px] font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 flex items-center gap-1.5"
+                                  className="px-4 py-1.5 bg-[#F59E0B] text-[#F8FAFC] rounded-lg text-[12px] font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 flex items-center gap-1.5"
                                   onClick={() => handleStartCall(currentTask)}
                                 >
                                   <Phone className="w-3.5 h-3.5" /> Start Call
@@ -494,14 +496,14 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                               )}
                               {currentTask.task_type === 'meeting' && (
                                 <button 
-                                  className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[12px] font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 flex items-center gap-1.5"
+                                  className="px-4 py-1.5 bg-indigo-600 text-[#F8FAFC] rounded-lg text-[12px] font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 flex items-center gap-1.5"
                                   onClick={() => addToast("Select Date/Time feature goes here", "info")}
                                 >
                                   <Calendar className="w-3.5 h-3.5" /> Schedule Date/Time
                                 </button>
                               )}
                               <button 
-                                className="px-4 py-1.5 bg-white border border-slate-300 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+                                className="px-4 py-1.5 bg-[#F8FAFC] border border-slate-300 rounded-lg text-[12px] font-semibold text-[#0F172A] hover:bg-[#0F172A]/10"
                                 onClick={handleCompleteTaskGeneric}
                               >
                                 {currentTask.task_type === 'call' ? 'Log Manually' : 'Log Outcome'}
@@ -509,7 +511,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                             </>
                           ) : (
                             <button 
-                              className="px-6 py-1.5 bg-rose-600 text-white rounded-lg text-[12px] font-bold shadow-lg shadow-rose-600/20 hover:bg-rose-700 flex items-center gap-1.5"
+                              className="px-6 py-1.5 bg-rose-600 text-[#F8FAFC] rounded-lg text-[12px] font-bold shadow-lg shadow-rose-600/20 hover:bg-rose-700 flex items-center gap-1.5"
                               onClick={handleEndCall}
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" /> End Call
@@ -521,14 +523,14 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                   )}
 
                   {/* Quick info card */}
-                  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+                  <div className="bg-[#F8FAFC] border border-[#0F172A]/20 rounded-xl shadow-sm p-6">
                     <div className="grid grid-cols-2 gap-y-5">
                       <InfoRow label="Lead Owner" value={lead.assigned_to_full_name || lead.assigned_to_username || '—'} />
                       <InfoRow label="Email" value={lead.email} isLink />
                       <InfoRow label="Phone" value={lead.phone} isPhone />
                       <InfoRow label="Mobile" value="—" />
                       <div className="flex">
-                        <div className="w-32 text-[13px] text-gray-500 text-right pr-6">Lead Status</div>
+                        <div className="w-32 text-[13px] text-[#0F172A]/70 text-right pr-6">Lead Status</div>
                         <select
                           disabled={true}
                           title="Lead status is updated automatically by completing tasks."
@@ -548,12 +550,12 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
 
                   {/* Full lead info */}
                   {!hideDetails && (
-                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mt-4">
-                      <div className="border-b border-gray-100 px-6 py-3 flex justify-between items-center">
-                        <span className="text-[14px] font-semibold text-gray-800">Lead Information</span>
+                    <div className="bg-[#F8FAFC] border border-[#0F172A]/20 rounded-xl shadow-sm mt-4">
+                      <div className="border-b border-[#0F172A]/10 px-6 py-3 flex justify-between items-center">
+                        <span className="text-[14px] font-semibold text-[#0F172A]">Lead Information</span>
                         <button
                           onClick={() => setHideDetails(true)}
-                          className="text-[12px] text-blue-600 hover:underline"
+                          className="text-[12px] text-[#0F172A] hover:underline"
                         >Hide Details</button>
                       </div>
                       <div className="px-6 py-5">
@@ -574,25 +576,25 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                   {hideDetails && (
                     <button
                       onClick={() => setHideDetails(false)}
-                      className="text-[13px] text-blue-600 hover:underline px-1 mt-2"
+                      className="text-[13px] text-[#0F172A] hover:underline px-1 mt-2"
                     >Show Details</button>
                   )}
                 </>
               )}
 
               {activeTab === 'timeline' && (
-                <div className="bg-white border border-gray-200 rounded-xl p-6">
-                  <h4 className="text-[14px] font-bold text-slate-800 mb-6 flex items-center">
+                <div className="bg-[#F8FAFC] border border-[#0F172A]/20 rounded-xl p-6">
+                  <h4 className="text-[14px] font-bold text-[#0F172A] mb-6 flex items-center">
                     📜 Timeline
                   </h4>
                   {timeline.length === 0 ? (
                     <div className="text-center py-8">
-                      <Clock className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                      <p className="text-[14px] font-semibold text-slate-500">No activity timeline yet</p>
-                      <p className="text-[12px] text-slate-400 mt-1">Actions on this lead will appear here</p>
+                      <Clock className="w-10 h-10 text-[#0F172A]/30 mx-auto mb-3" />
+                      <p className="text-[14px] font-semibold text-[#0F172A]/70">No activity timeline yet</p>
+                      <p className="text-[12px] text-[#0F172A]/50 mt-1">Actions on this lead will appear here</p>
                     </div>
                   ) : (
-                    <div className="relative border-l-2 border-slate-100 ml-4 space-y-6">
+                    <div className="relative border-l-2 border-[#0F172A]/10 ml-4 space-y-6">
                       {(() => {
                         const grouped = [];
                         let currentGroup = null;
@@ -614,19 +616,19 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                           if (act.isGroup) {
                             return (
                               <div key={act.id} className="relative pl-6 opacity-70">
-                                <div className="absolute -left-[11px] top-1 bg-white border-2 border-slate-200 w-5 h-5 rounded-full flex items-center justify-center">
+                                <div className="absolute -left-[11px] top-1 bg-[#F8FAFC] border-2 border-[#0F172A]/20 w-5 h-5 rounded-full flex items-center justify-center">
                                   <div className="text-blue-500 font-bold text-[10px]">🔄</div>
                                 </div>
-                                <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 cursor-pointer hover:bg-slate-100 transition-colors" onClick={(e) => {
+                                <div className="bg-[#0F172A]/10 border border-[#0F172A]/10 rounded-lg p-3 cursor-pointer hover:bg-[#0F172A]/20 transition-colors" onClick={(e) => {
                                   const details = e.currentTarget.nextElementSibling;
                                   if (details) details.classList.toggle('hidden');
                                 }}>
-                                  <p className="text-[13px] text-slate-700 font-medium">🔄 Task updated ({act.count} times)</p>
-                                  <p className="text-[11px] text-slate-400 mt-1">Click to expand details</p>
+                                  <p className="text-[13px] text-[#0F172A] font-medium">🔄 Task updated ({act.count} times)</p>
+                                  <p className="text-[11px] text-[#0F172A]/50 mt-1">Click to expand details</p>
                                 </div>
-                                <div className="hidden mt-2 space-y-2 pl-2 border-l-2 border-slate-200">
+                                <div className="hidden mt-2 space-y-2 pl-2 border-l-2 border-[#0F172A]/20">
                                   {act.items.slice().reverse().map(subAct => (
-                                    <div key={subAct.id} className="text-[12px] text-slate-500">
+                                    <div key={subAct.id} className="text-[12px] text-[#0F172A]/70">
                                       <span className="font-semibold text-slate-600">{dayjs(subAct.created_at).fromNow()}</span> → {subAct.notes}
                                     </div>
                                   ))}
@@ -636,7 +638,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                           }
 
                           const isHighValue = ['call', 'meeting', 'completed'].includes(act.type);
-                          let icon = <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" />;
+                          let icon = <CheckCircle2 className="w-3.5 h-3.5 text-[#0F172A]/70" />;
                           if (act.type === 'call') icon = <Phone className="w-3.5 h-3.5 text-blue-500" />;
                           if (act.type === 'reminder') icon = <AlertCircle className="w-3.5 h-3.5 text-amber-500" />;
                           if (act.type === 'created') icon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
@@ -647,12 +649,12 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
 
                           return (
                             <div key={act.id} className={`relative pl-6 ${isHighValue ? 'opacity-100' : 'opacity-80'}`}>
-                              <div className={`absolute -left-[11px] top-1 bg-white border-2 ${isHighValue ? 'border-blue-100 shadow-sm' : 'border-slate-200'} w-5 h-5 rounded-full flex items-center justify-center`}>
+                              <div className={`absolute -left-[11px] top-1 bg-[#F8FAFC] border-2 ${isHighValue ? 'border-blue-100 shadow-sm' : 'border-[#0F172A]/20'} w-5 h-5 rounded-full flex items-center justify-center`}>
                                 {icon}
                               </div>
-                              <div className={`rounded-lg p-3 ${isHighValue ? 'bg-blue-50 border border-blue-100' : 'bg-slate-50 border border-slate-100'}`}>
-                                <p className={`text-[13px] ${isHighValue ? 'text-blue-900 font-bold' : 'text-slate-800 font-medium'}`}>{act.notes || act.type}</p>
-                                <p className={`text-[11px] mt-1 ${isHighValue ? 'text-blue-600 font-medium' : 'text-slate-500'}`}>
+                              <div className={`rounded-lg p-3 ${isHighValue ? 'bg-[#0F172A]/10 border border-blue-100' : 'bg-[#0F172A]/10 border border-[#0F172A]/10'}`}>
+                                <p className={`text-[13px] ${isHighValue ? 'text-blue-900 font-bold' : 'text-[#0F172A] font-medium'}`}>{act.notes || act.type}</p>
+                                <p className={`text-[11px] mt-1 ${isHighValue ? 'text-[#0F172A] font-medium' : 'text-[#0F172A]/70'}`}>
                                   {timeStr}
                                 </p>
                               </div>
@@ -674,12 +676,12 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                 ? <EmptyState icon={<Activity className="w-8 h-8" />} message="No activities logged yet" />
                 : relatedActivities.map(a => (
                   <div key={a.id} className="flex items-start gap-3 py-3 border-b border-gray-50 last:border-0">
-                    <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Activity className="w-4 h-4 text-blue-600" />
+                    <div className="w-8 h-8 bg-[#0F172A]/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Activity className="w-4 h-4 text-[#0F172A]" />
                     </div>
                     <div>
-                      <p className="text-[13px] font-semibold text-gray-800 capitalize">{a.type}</p>
-                      <p className="text-[12px] text-gray-500 mt-0.5 line-clamp-2">{a.notes}</p>
+                      <p className="text-[13px] font-semibold text-[#0F172A] capitalize">{a.type}</p>
+                      <p className="text-[12px] text-[#0F172A]/70 mt-0.5 line-clamp-2">{a.notes}</p>
                       <p className="text-[11px] text-gray-400 mt-1">{new Date(a.created_at).toLocaleString()}</p>
                     </div>
                   </div>
@@ -696,13 +698,13 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                 : relatedDeals.map(d => (
                   <div key={d.id} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
                     <div>
-                      <p className="text-[13px] font-semibold text-gray-800">{d.title}</p>
-                      <p className="text-[12px] text-gray-500">{d.stage} · ${parseFloat(d.value).toLocaleString()}</p>
+                      <p className="text-[13px] font-semibold text-[#0F172A]">{d.title}</p>
+                      <p className="text-[12px] text-[#0F172A]/70">{d.stage} · ${parseFloat(d.value).toLocaleString()}</p>
                     </div>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                       d.stage === 'Closed Won' ? 'bg-emerald-50 text-emerald-600' :
                       d.stage?.startsWith('Closed') ? 'bg-rose-50 text-rose-600' :
-                      'bg-blue-50 text-blue-600'
+                      'bg-[#0F172A]/10 text-[#0F172A]'
                     }`}>{d.stage}</span>
                   </div>
                 ))
@@ -718,13 +720,13 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
                 : relatedTasks.map(t => (
                   <div key={t.id} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
                     <div>
-                      <p className={`text-[13px] font-semibold ${t.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-800'}`}>{t.title}</p>
-                      <p className="text-[12px] text-gray-500">Due: {t.due_date ? new Date(t.due_date).toLocaleDateString() : 'N/A'} · Priority: <span className="capitalize">{t.priority}</span></p>
+                      <p className={`text-[13px] font-semibold ${t.status === 'completed' ? 'line-through text-gray-400' : 'text-[#0F172A]'}`}>{t.title}</p>
+                      <p className="text-[12px] text-[#0F172A]/70">Due: {t.due_date ? new Date(t.due_date).toLocaleDateString() : 'N/A'} · Priority: <span className="capitalize">{t.priority}</span></p>
                     </div>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                       t.status === 'completed' ? 'bg-emerald-50 text-emerald-600' :
-                      t.status === 'in_progress' ? 'bg-blue-50 text-blue-600' :
-                      'bg-slate-50 text-slate-600'
+                      t.status === 'in_progress' ? 'bg-[#0F172A]/10 text-[#0F172A]' :
+                      'bg-[#0F172A]/10 text-slate-600'
                     }`}>{t.status}</span>
                   </div>
                 ))
@@ -745,7 +747,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
               <div className="mb-4">
                 <button
                   onClick={() => setShowEmailModal(true)}
-                  className="px-4 py-1.5 bg-[#1a56d9] text-white rounded-[4px] font-medium text-[13px] hover:bg-blue-700 flex items-center gap-1.5"
+                  className="px-4 py-1.5 bg-[#0F172A] text-[#F8FAFC] rounded-[4px] font-medium text-[13px] hover:bg-blue-700 flex items-center gap-1.5"
                 >
                   <Mail className="w-3.5 h-3.5" /> Compose Email
                 </button>
@@ -768,22 +770,22 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
       {showEmailModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !isSendingEmail && setShowEmailModal(false)} />
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10">
+          <div className="bg-[#F8FAFC] rounded-2xl shadow-2xl w-full max-w-lg relative z-10">
             {/* Header */}
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-[#0F172A]/10 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
-                  <Mail className="w-4 h-4 text-blue-600" />
+                <div className="w-8 h-8 bg-[#0F172A]/10 rounded-lg flex items-center justify-center">
+                  <Mail className="w-4 h-4 text-[#0F172A]" />
                 </div>
                 <div>
-                  <h3 className="text-[15px] font-bold text-gray-800">Send Email</h3>
-                  <p className="text-[12px] text-gray-500">To: {lead.name} &lt;{lead.email}&gt;</p>
+                  <h3 className="text-[15px] font-bold text-[#0F172A]">Send Email</h3>
+                  <p className="text-[12px] text-[#0F172A]/70">To: {lead.name} &lt;{lead.email}&gt;</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowEmailModal(false)}
                 disabled={isSendingEmail}
-                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-1.5 text-gray-400 hover:text-[#0F172A] hover:bg-[#0F172A]/10 rounded-lg transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -791,9 +793,9 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
 
             <form onSubmit={handleSendEmail} className="p-6 space-y-4">
               {/* To (read-only display) */}
-              <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                <span className="text-[12px] text-gray-500 font-semibold w-10">To:</span>
-                <span className="text-[13px] text-gray-800">{lead.name} &lt;{lead.email}&gt;</span>
+              <div className="flex items-center gap-3 px-3 py-2 bg-[#0F172A]/5 rounded-lg border border-[#0F172A]/20">
+                <span className="text-[12px] text-[#0F172A]/70 font-semibold w-10">To:</span>
+                <span className="text-[13px] text-[#0F172A]">{lead.name} &lt;{lead.email}&gt;</span>
               </div>
 
               {/* Subject */}
@@ -962,6 +964,32 @@ function EmptyState({ icon, message, sub }) {
 
 
 export default function Leads() {
+  const fetchLeadsWithSort = useCallback(async (params, config) => {
+    const res = await leadsApi.getAll(params, config);
+    if (Array.isArray(res)) {
+      const order = { 'new': 1, 'contacted': 2, 'qualified': 3 };
+      return res.sort((a, b) => {
+        const orderA = order[a.status?.toLowerCase()] || 99;
+        const orderB = order[b.status?.toLowerCase()] || 99;
+        return orderA - orderB;
+      });
+    }
+    return res;
+  }, []);
+
+  const { 
+    currentPage, 
+    rowsPerPage, 
+    totalRecords, 
+    totalPages, 
+    isLoading, 
+    error, 
+    setPage, 
+    changeRowsPerPage, 
+    loadData, 
+    setCurrentPage 
+  } = usePagination(fetchLeadsWithSort);
+
   const [leads, setLeads] = useState([]);
   const { lastMessage } = useWebSocket();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -973,11 +1001,25 @@ export default function Leads() {
     createDeal: false, dealName: '', amount: '', stage: 'proposal',
     closingDate: '', campaign_source: '', contact_role: '',
   });
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusFilter, setStatusFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  
+  // Debounce search query
+  useEffect(() => {
+    if (searchQuery !== debouncedSearchQuery) {
+      setIsSearching(true);
+    }
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      setIsSearching(false);
+      setCurrentPage(1); // Reset page on search change
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [searchQuery, debouncedSearchQuery, setCurrentPage]);
+
   // Dynamic conversion rate fetched from backend
   const [conversionStats, setConversionStats] = useState({ conversion_rate: 0, qualified: 0, total: 0 });
   const { addToast } = useToast();
@@ -989,18 +1031,16 @@ export default function Leads() {
   // ─── Data Fetching ───────────────────────────────────────────────────────────
 
   const fetchLeads = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const data = await leadsApi.getAll({ ordering: '-created_at' });
-      setLeads(Array.isArray(data) ? data : data.results || []);
-      setError(null);
-    } catch (err) {
-      setError('Failed to load leads. Please try again later.');
-      console.error(err);
-    } finally {
-      setIsLoading(false);
+    const params = { ordering: '-created_at' };
+    if (debouncedSearchQuery) {
+      params.search = debouncedSearchQuery;
     }
-  }, []);
+    if (statusFilter !== 'All') {
+      params.status = statusFilter.toLowerCase();
+    }
+    const data = await loadData(params);
+    setLeads(data);
+  }, [loadData, debouncedSearchQuery, statusFilter]);
 
   useEffect(() => {
     if (lastMessage && lastMessage.type === 'model_update' && lastMessage.model === 'lead') {
@@ -1179,13 +1219,8 @@ export default function Leads() {
     }
   };
 
-  const filteredLeads = leads.filter(l => {
-    const matchesStatus = statusFilter === 'All' || l.status?.toLowerCase() === statusFilter.toLowerCase();
-    const matchesSearch = l.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         l.company?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         l.email?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
+  // Server-side filtering is used, so we just use the leads array directly
+  const filteredLeads = leads;
 
   // ─── Table Columns ───────────────────────────────────────────────────────────
 
@@ -1534,7 +1569,7 @@ export default function Leads() {
           <div className="flex items-center mt-1 space-x-2">
             <span className="text-sm font-medium text-slate-500">Sales Hub</span>
             <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-            <span className="text-sm font-bold text-blue-600">{filteredLeads.length} Total Prospects</span>
+            <span className="text-sm font-bold text-blue-600">{totalRecords} Total Prospects</span>
           </div>
         </div>
         
@@ -1546,8 +1581,11 @@ export default function Leads() {
               placeholder="Quick find..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all"
+              className="pl-9 pr-10 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all"
             />
+            {(isSearching || isLoading) && (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+            )}
           </div>
           
           <button 
@@ -1588,7 +1626,7 @@ export default function Leads() {
           {['All', 'New', 'Contacted', 'Qualified', 'Lost'].map(status => (
             <button
               key={status}
-              onClick={() => setStatusFilter(status)}
+              onClick={() => { setStatusFilter(status); setCurrentPage(1); }}
               className={`px-5 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
                 statusFilter === status
                   ? 'bg-slate-900 text-white shadow-md'
@@ -1663,14 +1701,14 @@ export default function Leads() {
           <Table columns={columns} data={filteredLeads} />
         </div>
 
-        {/* Custom Pagination (Simplified) */}
-        <div className="px-8 py-6 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
-          <div className="flex items-center space-x-4">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-              Showing all <span className="text-slate-900">{filteredLeads.length}</span> leads
-            </span>
-          </div>
-        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalRecords={totalRecords}
+          rowsPerPage={rowsPerPage}
+          onPageChange={setPage}
+          onRowsPerPageChange={changeRowsPerPage}
+        />
       </div>
 
       {/* Premium Add / Edit Modal */}

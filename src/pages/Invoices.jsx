@@ -10,6 +10,7 @@ import { useToast } from '../context/ToastContext';
 import Table from '../components/Table';
 import dayjs from 'dayjs';
 import { useAuth } from '../context/AuthContext';
+import { CARD_CONTAINER, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_DEFAULT, INPUT_STYLE, BUTTON_PRIMARY } from '../utils/themeUtils';
 
 export default function Invoices() {
   const { can } = useAuth();
@@ -102,15 +103,15 @@ export default function Invoices() {
   // Dynamic KPI Calculations
   const totalOutstanding = invoices
     .filter(inv => inv.status === 'sent' || inv.status === 'overdue')
-    .reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+    .reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0);
 
   const fiscalYield = invoices
     .filter(inv => inv.status === 'paid')
-    .reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+    .reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0);
 
   const overdueProtocol = invoices
     .filter(inv => inv.status === 'overdue')
-    .reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+    .reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0);
 
   const unpaidInvoices = invoices.filter(inv => inv.status === 'sent' || inv.status === 'overdue');
   const averageAging = unpaidInvoices.length > 0 
@@ -138,11 +139,11 @@ export default function Invoices() {
 
   const getStatusColors = (status) => {
     const s = status?.toLowerCase();
-    if (s === 'paid' || s === 'completed') return 'bg-emerald-50 text-emerald-600 border-emerald-100';
-    if (s === 'overdue' || s === 'cancelled') return 'bg-rose-50 text-rose-600 border-rose-100';
-    if (s === 'sent' || s === 'posted') return 'bg-blue-50 text-blue-600 border-blue-100';
-    if (s === 'draft') return 'bg-slate-50 text-slate-400 border-slate-100';
-    return 'bg-amber-50 text-amber-600 border-amber-100';
+    if (s === 'paid' || s === 'completed') return 'bg-[#0F172A]/10 text-[#0F172A] border-[#0F172A]/20';
+    if (s === 'overdue' || s === 'cancelled') return 'bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/20';
+    if (s === 'sent' || s === 'posted') return 'bg-[#0F172A]/10 text-[#0F172A] border-[#0F172A]/20';
+    if (s === 'draft') return 'bg-[#0F172A]/5 text-[#0F172A]/50 border-[#0F172A]/10';
+    return 'bg-[#0F172A]/10 text-[#0F172A] border-[#0F172A]/20';
   };
 
   const columns = [
@@ -154,7 +155,7 @@ export default function Invoices() {
           <div className="h-8 w-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 mr-3">
              <FileText className="w-4 h-4" />
           </div>
-          <span className="text-sm font-semibold text-blue-600">#{row.invoice_number}</span>
+          <span className="text-sm font-semibold text-tihvo-dark">#{row.invoice_number}</span>
         </div>
       )
     },
@@ -239,7 +240,7 @@ export default function Invoices() {
         <div className="flex justify-end space-x-1">
           <button 
             onClick={() => { setSelectedInvoice(row); setIsDetailsOpen(true); }}
-            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" 
+            className="p-1.5 text-slate-400 hover:text-tihvo-dark hover:bg-blue-50 rounded-lg transition-all" 
             title="View Details"
           >
             <Eye className="w-4 h-4" />
@@ -248,7 +249,7 @@ export default function Invoices() {
           {row.status === 'draft' && can('invoice.send') && (
             <button 
               onClick={() => handleSendInvoice(row)}
-              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" 
+              className="p-1.5 text-slate-400 hover:text-tihvo-dark hover:bg-blue-50 rounded-lg transition-all" 
               title="Send Invoice"
             >
               <Send className="w-4 h-4" />
@@ -267,7 +268,7 @@ export default function Invoices() {
 
           <button 
             onClick={() => handleDownloadPDF(row)}
-            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" 
+            className="p-1.5 text-slate-400 hover:text-tihvo-dark hover:bg-blue-50 rounded-lg transition-all" 
             title="Download PDF"
             disabled={generatingPDFId !== null}
           >
@@ -285,27 +286,27 @@ export default function Invoices() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
            <div className="flex items-center space-x-2 mb-1">
-             <DollarSign className="w-5 h-5 text-blue-600" />
+             <DollarSign className="w-5 h-5 text-tihvo-dark" />
              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Inventory</span>
           </div>
-          <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Invoices</h2>
+          <h2 className={`text-3xl font-bold tracking-tight ${TEXT_PRIMARY}`}>Invoices</h2>
         </div>
         
         <div className="flex items-center space-x-3">
           <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-tihvo-dark transition-colors" />
             <input 
               type="text" 
               placeholder="Search fiscal records..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-blue-500 w-64 transition-all shadow-sm"
+              className="pl-9 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:border-[#F59E0B] w-64 transition-all shadow-sm text-slate-900 dark:text-white"
             />
           </div>
-          <button className="p-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+          <button className="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm">
             <Filter className="w-4 h-4" />
           </button>
-          <button className="inline-flex items-center px-5 py-2 bg-slate-900 text-white rounded-lg font-semibold text-sm hover:bg-slate-800 transition-all">
+          <button className={BUTTON_PRIMARY}>
             <Plus className="mr-2 w-4 h-4" />
             Generate Invoice
           </button>
@@ -315,16 +316,16 @@ export default function Invoices() {
       {/* Fiscal KPI Row (Dynamic) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
          {[
-           { label: 'Total Outstanding', value: new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(totalOutstanding), trend: 'Live', color: 'blue' },
-           { label: 'Fiscal Yield', value: new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(fiscalYield), trend: 'Live', color: 'emerald' },
+           { label: 'Total Outstanding', value: `${new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(totalOutstanding)} (${invoices.filter(inv => inv.status === 'sent' || inv.status === 'overdue').length})`, trend: 'Live', color: 'blue' },
+           { label: 'Fiscal Yield', value: `${new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(fiscalYield)} (${invoices.filter(inv => inv.status === 'paid').length})`, trend: 'Live', color: 'emerald' },
            { label: 'Average Aging', value: `${averageAging} Days`, trend: 'Live', color: 'emerald' },
-           { label: 'Overdue Protocol', value: new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(overdueProtocol), trend: 'Live', color: 'rose' }
+           { label: 'Overdue Protocol', value: `${new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(overdueProtocol)} (${invoices.filter(inv => inv.status === 'overdue').length})`, trend: 'Live', color: 'rose' }
          ].map((kpi, i) => (
-           <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{kpi.label}</p>
+           <div key={i} className="bg-white dark:bg-[#0F172A] p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm transition-colors duration-200">
+              <p className={`text-[10px] font-bold uppercase tracking-widest ${TEXT_SECONDARY}`}>{kpi.label}</p>
               <div className="flex items-end justify-between mt-1">
-                 <h4 className="text-2xl font-bold text-slate-900">{kpi.value}</h4>
-                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                 <h4 className={`text-2xl font-bold ${TEXT_PRIMARY}`}>{kpi.value}</h4>
+                 <span className={`text-[10px] font-bold uppercase tracking-widest ${TEXT_SECONDARY}`}>
                     {kpi.trend}
                  </span>
               </div>
@@ -333,9 +334,9 @@ export default function Invoices() {
       </div>
 
       {/* Main Registry Container */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px]">
-        <div className="px-6 py-4 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
-           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Fiscal Records</h3>
+      <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden min-h-[500px] transition-colors duration-200">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0F172A]/50 flex items-center justify-between">
+           <h3 className={`text-xs font-bold uppercase tracking-widest ${TEXT_SECONDARY}`}>Fiscal Records</h3>
         </div>
         
         {isLoading ? (
@@ -352,10 +353,10 @@ export default function Invoices() {
       {isDetailsOpen && selectedInvoice && (
         <div className="fixed inset-0 z-[100] flex justify-end">
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsDetailsOpen(false)} />
-          <div className="bg-white w-full max-w-2xl h-full shadow-2xl relative z-10 overflow-y-auto animate-fade-in">
+          <div className="bg-[#F8FAFC] w-full max-w-2xl h-full shadow-2xl relative z-10 overflow-y-auto animate-fade-in">
             
             {/* Header */}
-            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-20">
+            <div className="px-6 py-5 border-b border-[#0F172A]/10 flex items-center justify-between sticky top-0 bg-[#F8FAFC] z-20">
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="text-xl font-bold text-slate-900">Invoice #{selectedInvoice.invoice_number}</span>
@@ -399,7 +400,7 @@ export default function Invoices() {
               <div className="border-t border-slate-100 pt-5">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Invoice Items</h4>
-                  <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded">Live Synced from Quote</span>
+                  <span className="text-[10px] font-bold text-tihvo-dark uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded">Live Synced from Quote</span>
                 </div>
                 <div className="overflow-hidden border border-slate-200 rounded-lg">
                   <table className="min-w-full divide-y divide-slate-200">
@@ -447,7 +448,7 @@ export default function Invoices() {
                    </div>
                    <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
                      <span className="text-slate-900">Grand Total:</span>
-                     <span className="text-blue-600">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(selectedInvoice.amount) * 1.18)}</span>
+                     <span className="text-tihvo-dark">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(parseFloat(selectedInvoice.amount) * 1.18)}</span>
                    </div>
                 </div>
               </div>
@@ -464,7 +465,7 @@ export default function Invoices() {
                 {(selectedInvoice.status === 'sent' || selectedInvoice.status === 'overdue') && can('invoice.mark_paid') && (
                   <button 
                     onClick={() => handleMarkPaid(selectedInvoice)}
-                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 flex items-center"
+                    className="px-4 py-2 bg-tihvo-orange text-white rounded-lg text-sm font-semibold hover:bg-tihvo-orange/90 flex items-center"
                   >
                     <CreditCard className="w-4 h-4 mr-2" /> Record Payment
                   </button>
@@ -477,7 +478,7 @@ export default function Invoices() {
       )}
       {/* Hidden Printable/PDF Area */}
       {selectedInvoice && (
-        <div id={`printable-invoice-${selectedInvoice.id}`} className="absolute -left-[9999px] top-0 p-10 bg-white text-slate-900 w-[800px]" style={{ fontFamily: 'Inter, sans-serif' }}>
+        <div id={`printable-invoice-${selectedInvoice.id}`} className="absolute -left-[9999px] top-0 p-10 bg-[#F8FAFC] text-[#0F172A] w-[800px]" style={{ fontFamily: 'Inter, sans-serif' }}>
           <div className="flex justify-between items-start mb-8">
             <div>
               <h1 className="text-3xl font-bold text-slate-900">INVOICE</h1>
@@ -499,7 +500,7 @@ export default function Invoices() {
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Details</h4>
               <p className="text-sm text-slate-900">Date: {dayjs(selectedInvoice.created_at).format('DD/MM/YYYY')}</p>
               <p className="text-sm text-slate-900">Due Date: {selectedInvoice.due_date ? dayjs(selectedInvoice.due_date).format('DD/MM/YYYY') : 'N/A'}</p>
-              <p className="text-sm font-bold text-blue-600 mt-1">Status: {getPaymentStatus(selectedInvoice.status)}</p>
+              <p className="text-sm font-bold text-tihvo-dark mt-1">Status: {getPaymentStatus(selectedInvoice.status)}</p>
             </div>
           </div>
 
@@ -545,7 +546,7 @@ export default function Invoices() {
               </div>
               <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
                 <span className="text-slate-900">Grand Total:</span>
-                <span className="text-blue-600">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(selectedInvoice.amount) * 1.18)}</span>
+                <span className="text-tihvo-dark">{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(selectedInvoice.amount) * 1.18)}</span>
               </div>
             </div>
           </div>

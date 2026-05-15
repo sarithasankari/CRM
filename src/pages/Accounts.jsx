@@ -1,15 +1,61 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Building2, Plus, Search, MapPin, 
   Filter, Loader2, MoreHorizontal, X
 } from 'lucide-react';
 import { accountsApi, dealsApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { usePagination } from '../hooks/usePagination';
+import Pagination from '../components/Pagination';
 
 export default function Accounts() {
+  const fetchAccountsAndDeals = useCallback(async (params, config) => {
+    const [accountsRes, dealsRes] = await Promise.all([
+      accountsApi.getAll(params, config),
+      dealsApi.getAll()
+    ]);
+    
+    const fetchedAccounts = accountsRes.results || accountsRes;
+    const fetchedDeals = dealsRes.results || dealsRes;
+    
+    const accountMap = {};
+    
+    fetchedAccounts.forEach(acc => {
+       accountMap[acc.id] = {
+          id: acc.id,
+          name: acc.name,
+          industry: acc.industry || 'General',
+          size: acc.company_size || 'N/A',
+          contacts: acc.contacts_count || 0,
+          openDeals: acc.open_deals_count || 0,
+          value: acc.pipeline_value || 0,
+          location: acc.location || 'N/A',
+          website: acc.website || '',
+          phone: acc.phone || '',
+          annual_revenue: acc.annual_revenue || ''
+       };
+    });
+    
+    return Object.values(accountMap);
+  }, []);
+
+  const { 
+    currentPage, 
+    rowsPerPage, 
+    totalRecords, 
+    totalPages, 
+    isLoading, 
+    error, 
+    setPage, 
+    changeRowsPerPage, 
+    loadData, 
+    setCurrentPage 
+  } = usePagination(fetchAccountsAndDeals);
+
   const [accounts, setAccounts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
@@ -19,46 +65,31 @@ export default function Accounts() {
   const [formData, setFormData] = useState({ name: '', industry: '', website: '', location: '', phone: '', company_size: '', annual_revenue: '' });
   const { addToast } = useToast();
 
-  const fetchAccounts = async () => {
-    try {
-      setIsLoading(true);
-      const [accountsRes, dealsRes] = await Promise.all([
-        accountsApi.getAll(),
-        dealsApi.getAll()
-      ]);
-      
-      const fetchedAccounts = accountsRes.results || accountsRes;
-      const fetchedDeals = dealsRes.results || dealsRes;
-      
-      const accountMap = {};
-      
-      fetchedAccounts.forEach(acc => {
-         accountMap[acc.id] = {
-            id: acc.id,
-            name: acc.name,
-            industry: acc.industry || 'General',
-            size: acc.company_size || 'N/A',
-            contacts: acc.contacts_count || 0,
-            openDeals: acc.open_deals_count || 0,
-            value: acc.pipeline_value || 0,
-            location: acc.location || 'N/A',
-            website: acc.website || '',
-            phone: acc.phone || '',
-            annual_revenue: acc.annual_revenue || ''
-         };
-      });
-      
-      setAccounts(Object.values(accountMap));
-    } catch (err) {
-      addToast('Failed to fetch accounts', 'error');
-    } finally {
-      setIsLoading(false);
+  // Debounce search term
+  useEffect(() => {
+    if (searchTerm !== debouncedSearchTerm) {
+      setIsSearching(true);
     }
-  };
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setIsSearching(false);
+      setCurrentPage(1);
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [searchTerm, debouncedSearchTerm, setCurrentPage]);
+
+  const fetchAccounts = useCallback(async () => {
+    const params = {};
+    if (debouncedSearchTerm) {
+      params.search = debouncedSearchTerm;
+    }
+    const data = await loadData(params);
+    setAccounts(data);
+  }, [loadData, debouncedSearchTerm]);
 
   useEffect(() => {
     fetchAccounts();
-  }, []);
+  }, [fetchAccounts]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -110,9 +141,8 @@ export default function Accounts() {
     }
   };
 
-  const filteredAccounts = accounts.filter(acc => 
-    acc.name.toLowerCase().includes(searchTerm.toLowerCase())
-  ).sort((a, b) => {
+  // Server-side filtering and pagination are used
+  const filteredAccounts = accounts.sort((a, b) => {
     if (!sortField) return 0;
     const aVal = a[sortField];
     const bVal = b[sortField];
@@ -143,8 +173,11 @@ export default function Accounts() {
               placeholder="Search accounts..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all"
+              className="pl-9 pr-10 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none w-64 transition-all"
             />
+            {(isSearching || isLoading) && (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+            )}
           </div>
           
           <button className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
@@ -257,6 +290,15 @@ export default function Accounts() {
           </div>
         )}
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalRecords}
+        rowsPerPage={rowsPerPage}
+        onPageChange={setPage}
+        onRowsPerPageChange={changeRowsPerPage}
+      />
 
       {/* Account Creation Modal */}
       {isModalOpen && (

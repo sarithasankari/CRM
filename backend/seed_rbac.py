@@ -26,6 +26,12 @@ def seed_rbac():
         ('lead.edit', 'Can edit leads'),
         ('report.view', 'Can view reports'),
         ('admin.access', 'Full admin access'),
+        ('ticket.view', 'Can view support tickets'),
+        ('ticket.edit', 'Can edit support tickets'),
+        ('task.view', 'Can view tasks'),
+        ('task.edit', 'Can edit tasks'),
+        ('deal.view', 'Can view deals'),
+        ('deal.edit', 'Can edit deals'),
     ]
     
     perms = {}
@@ -37,10 +43,12 @@ def seed_rbac():
             
     # Define roles and map permissions
     roles_mapping = {
-        'Admin': list(perms.values()), # All permissions
-        'Manager': [perms['quote.approve'], perms['invoice.generate'], perms['invoice.send'], perms['report.view']],
-        'Sales Executive': [perms['quote.create'], perms['quote.edit'], perms['lead.view']],
-        'Viewer': [perms['lead.view']], # Read-only
+        'System Administrator': list(perms.values()),
+        'Sales Manager': [perms['quote.approve'], perms['report.view'], perms['deal.view']],
+        'Sales Representative': [perms['lead.view'], perms['lead.edit'], perms['deal.view'], perms['deal.edit'], perms['task.view'], perms['task.edit']],
+        'Support Agent': [perms['ticket.view'], perms['ticket.edit']],
+        'Finance Manager': [perms['invoice.generate'], perms['invoice.send'], perms['invoice.mark_paid']],
+        'Executive': [perms['report.view'], perms['lead.view'], perms['deal.view']],
     }
     
     for role_name, role_perms in roles_mapping.items():
@@ -50,21 +58,32 @@ def seed_rbac():
         if created:
             print(f"Created role: {role_name}")
             
-    # Assign roles to existing users based on their string role
-    admin_role = Role.objects.get(name='Admin')
-    manager_role = Role.objects.get(name='Manager')
-    sales_role = Role.objects.get(name='Sales Executive')
+    # Create sample users
+    sample_users = [
+        ('admin@crm.com', 'admin', 'System Administrator'),
+        ('manager@crm.com', 'manager', 'Sales Manager'),
+        ('sales@crm.com', 'sales', 'Sales Representative'),
+        ('support@crm.com', 'support', 'Support Agent'),
+        ('finance@crm.com', 'finance', 'Finance Manager'),
+        ('executive@crm.com', 'executive', 'Executive'),
+    ]
     
-    users = User.objects.all()
-    for user in users:
-        if user.role == 'admin':
-            user.role_fk = admin_role
-        elif user.role == 'manager':
-            user.role_fk = manager_role
-        elif user.role == 'sales':
-            user.role_fk = sales_role
+    for email, password, role_name in sample_users:
+        username = email.split('@')[0]
+        user, created = User.objects.get_or_create(username=username, defaults={
+            'email': email,
+            'first_name': username.capitalize(),
+            'last_name': 'Demo',
+            'role': role_name.lower().replace(' ', '_'),
+        })
+        if created:
+            user.set_password(password)
+            print(f"Created sample user: {username}")
+        
+        user.email = email
+        user.role_fk = Role.objects.get(name=role_name)
         user.save()
-        print(f"Assigned role {user.role_fk.name} to user {user.username}")
+        print(f"Updated user {username} with role {role_name}")
 
 if __name__ == '__main__':
     seed_rbac()

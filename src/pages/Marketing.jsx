@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Megaphone, Send, Target, BarChart3, MailOpen, Plus, Zap,
   Loader2, X, Trash2, TrendingUp, MousePointerClick, DollarSign,
@@ -94,6 +95,7 @@ function MiniBar({ value, max, color = 'bg-blue-500' }) {
 // --- Main Component ---
 
 export default function Marketing() {
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('overview');
   const [campaigns, setCampaigns] = useState([]);
   const [analytics, setAnalytics] = useState(null);
@@ -130,13 +132,16 @@ export default function Marketing() {
 
   useEffect(() => { 
     fetchData(); 
-    
+  }, [lastMessage]);
+
+  useEffect(() => {
     // Handle deep-linking from Sidebar hash fragments
-    const hash = window.location.hash.replace('#', '');
+    const hash = location.hash.replace('#', '');
     if (hash === 'campaigns') setActiveTab('campaigns');
     else if (hash === 'capture') setActiveTab('lead_capture');
     else if (hash === 'analytics') setActiveTab('analytics');
-  }, [lastMessage]);
+    else setActiveTab('overview');
+  }, [location.hash]);
 
   const openCreate = () => { setEditingId(null); setFormData(EMPTY_FORM); setIsModalOpen(true); };
   const openEdit = (c) => {

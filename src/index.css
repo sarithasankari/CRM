@@ -7,16 +7,12 @@
 @layer base {
   :root {
     --primary: 15, 23, 42;
-    --accent: 37, 99, 235;
+    --accent: 245, 158, 11;
     --background: 248, 250, 252;
   }
 
   body {
-    @apply bg-[#f8fafc] text-slate-900 font-['Outfit',_sans-serif] antialiased overflow-x-hidden;
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(37, 99, 235, 0.03) 0, transparent 50%),
-      radial-gradient(at 50% 0%, rgba(99, 102, 241, 0.03) 0, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(37, 99, 235, 0.03) 0, transparent 50%);
+    @apply bg-[#F8FAFC] text-[#0F172A] font-['Outfit',_sans-serif] antialiased overflow-x-hidden;
   }
 
   /* Custom selection color */
@@ -27,7 +23,7 @@
 
 @layer components {
   .glass-card {
-    @apply bg-white border border-slate-100 shadow-[0_8px_40px_rgba(0,0,0,0.02)] rounded-[32px] transition-all;
+    @apply bg-[#FFFFFF] border border-[#E2E8F0] text-[#0F172A] rounded-[32px] transition-all;
   }
 
   .glass-card:hover {
@@ -39,12 +35,12 @@
   }
 
   .input-field {
-    @apply w-full px-5 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-medium focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 outline-none transition-all placeholder:text-slate-400;
+    @apply w-full px-5 py-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl text-sm font-medium focus:border-[#F59E0B] outline-none transition-all placeholder:text-[#0F172A]/50 text-[#0F172A];
   }
 
   /* Sophisticated Table Utilities */
   .crm-table-container {
-    @apply bg-white rounded-[32px] border border-slate-100 shadow-xl shadow-slate-200/20 overflow-hidden;
+    @apply bg-[#F8FAFC] rounded-[32px] border border-[#E2E8F0] overflow-hidden;
   }
 
   /* Custom badge utility */
