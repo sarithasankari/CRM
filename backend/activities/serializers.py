@@ -1,5 +1,40 @@
 from rest_framework import serializers
-from .models import Activity, Meeting, Call
+from .models import Activity, Meeting, Call, Comment, Mention
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+class UserMinimalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('id', 'username', 'first_name', 'last_name', 'avatar')
+
+
+class MentionSerializer(serializers.ModelSerializer):
+    user_details = UserMinimalSerializer(source='user', read_only=True)
+    
+    class Meta:
+        model = Mention
+        fields = ('id', 'user', 'user_details', 'created_at')
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    user_details = UserMinimalSerializer(source='user', read_only=True)
+    mentions = MentionSerializer(many=True, read_only=True)
+    replies = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Comment
+        fields = (
+            'id', 'user', 'user_details', 'text', 'content_type', 'object_id', 
+            'parent', 'replies', 'mentions', 'is_internal', 'created_at', 'updated_at'
+        )
+        read_only_fields = ('user', 'created_at', 'updated_at')
+
+    def get_replies(self, obj):
+        if obj.replies.exists():
+            return CommentSerializer(obj.replies.all(), many=True).data
+        return []
 
 class ActivitySerializer(serializers.ModelSerializer):
     class Meta:

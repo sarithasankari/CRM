@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
 import { ThemeProvider } from './context/ThemeContext';
 import { Loader2 } from 'lucide-react';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 
 // Lazy load all pages for better performance and smaller chunks
 const Dashboard      = lazy(() => import('./pages/Dashboard'));
@@ -35,6 +36,29 @@ const Projects       = lazy(() => import('./pages/Projects'));
 const ProjectDetail  = lazy(() => import('./pages/ProjectDetail'));
 const Feedback       = lazy(() => import('./pages/Feedback'));
 const Login          = lazy(() => import('./pages/Login'));
+const Unauthorized   = lazy(() => import('./pages/Unauthorized'));
+const NotificationCenter = lazy(() => import('./pages/NotificationCenter'));
+const ActivityHub = lazy(() => import('./pages/ActivityHub'));
+
+// Settings Pages
+const SettingsIndex  = lazy(() => import('./pages/settings/SettingsIndex'));
+const ProfileSettings = lazy(() => import('./pages/settings/ProfileSettings'));
+const PasswordSettings = lazy(() => import('./pages/settings/PasswordSettings'));
+const SessionHistory = lazy(() => import('./pages/settings/SessionHistory'));
+const NotificationSettings = lazy(() => import('./pages/settings/NotificationSettings'));
+const SystemPreferences = lazy(() => import('./pages/settings/SystemPreferences'));
+const UserManagement = lazy(() => import('./pages/settings/UserManagement'));
+const RolesPermissions = lazy(() => import('./pages/settings/RolesPermissions'));
+const SecuritySettings = lazy(() => import('./pages/settings/SecuritySettings'));
+const CompanySettings = lazy(() => import('./pages/settings/CompanySettings'));
+const AuditLogs = lazy(() => import('./pages/settings/AuditLogs'));
+const SalesPreferences = lazy(() => import('./pages/settings/SalesPreferences'));
+const SupportPreferences = lazy(() => import('./pages/settings/SupportPreferences'));
+const FinancePreferences = lazy(() => import('./pages/settings/FinancePreferences'));
+const WorkflowList = lazy(() => import('./pages/settings/workflows/WorkflowList'));
+const WorkflowBuilder = lazy(() => import('./pages/settings/workflows/WorkflowBuilder'));
+const WorkflowLogs = lazy(() => import('./pages/settings/workflows/WorkflowLogs'));
+const RealtimeDashboard = lazy(() => import('./pages/settings/RealtimeDashboard'));
 
 const LoadingFallback = () => (
   <div className="flex h-screen w-full items-center justify-center bg-slate-50/50">
@@ -67,7 +91,31 @@ function App() {
             <Route path="accounts" element={<Accounts />} />
             <Route path="profile" element={<Profile />} />
             <Route path="account" element={<AccountSettings />} />
-            <Route path="settings" element={<Settings />} />
+            
+            <Route path="settings" element={<Settings />}>
+              <Route index element={<SettingsIndex />} />
+              <Route path="profile" element={<ProtectedRoute permission="profile.manage"><ProfileSettings /></ProtectedRoute>} />
+              <Route path="password" element={<ProtectedRoute permission="profile.manage"><PasswordSettings /></ProtectedRoute>} />
+              <Route path="sessions" element={<ProtectedRoute permission="profile.manage"><SessionHistory /></ProtectedRoute>} />
+              <Route path="notifications" element={<ProtectedRoute permission="profile.manage"><NotificationSettings /></ProtectedRoute>} />
+              <Route path="preferences" element={<ProtectedRoute permission="profile.manage"><SystemPreferences /></ProtectedRoute>} />
+              <Route path="users" element={<ProtectedRoute permission="users.manage"><UserManagement /></ProtectedRoute>} />
+              <Route path="roles" element={<ProtectedRoute permission="roles.manage"><RolesPermissions /></ProtectedRoute>} />
+              <Route path="security" element={<ProtectedRoute permission="security.manage"><SecuritySettings /></ProtectedRoute>} />
+              <Route path="sales" element={<ProtectedRoute permission="sales.settings.manage"><SalesPreferences /></ProtectedRoute>} />
+              <Route path="support" element={<ProtectedRoute permission="support.settings.manage"><SupportPreferences /></ProtectedRoute>} />
+              <Route path="finance" element={<ProtectedRoute permission="finance.settings.manage"><FinancePreferences /></ProtectedRoute>} />
+              <Route path="company" element={<ProtectedRoute permission="system.manage"><CompanySettings /></ProtectedRoute>} />
+              <Route path="audit-logs" element={<ProtectedRoute permission="auditlogs.view"><AuditLogs /></ProtectedRoute>} />
+              
+              <Route path="workflows" element={<ProtectedRoute permission="workflow.manage"><WorkflowList /></ProtectedRoute>} />
+              <Route path="workflows/create" element={<ProtectedRoute permission="workflow.manage"><WorkflowBuilder /></ProtectedRoute>} />
+              <Route path="workflows/:id" element={<ProtectedRoute permission="workflow.manage"><WorkflowBuilder /></ProtectedRoute>} />
+              <Route path="workflows/:id/logs" element={<ProtectedRoute permission="workflow.manage"><WorkflowLogs /></ProtectedRoute>} />
+              <Route path="realtime" element={<ProtectedRoute permission="security.manage"><RealtimeDashboard /></ProtectedRoute>} />
+            </Route>
+
+            <Route path="unauthorized" element={<Unauthorized />} />
             <Route path="users" element={<Users />} />
             <Route path="tasks" element={<Tasks />} />
             <Route path="calls" element={<Calls />} />
@@ -87,6 +135,8 @@ function App() {
             <Route path="projects" element={<Projects />} />
             <Route path="projects/:id" element={<ProjectDetail />} />
             <Route path="feedback" element={<Feedback />} />
+            <Route path="notifications" element={<ProtectedRoute><NotificationCenter /></ProtectedRoute>} />
+            <Route path="activity-hub" element={<ProtectedRoute><ActivityHub /></ProtectedRoute>} />
           </Route>
           <Route path="/login" element={<Login />} />
         </Routes>

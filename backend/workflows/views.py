@@ -146,6 +146,63 @@ class WorkflowViewSet(viewsets.ModelViewSet):
             'detail':    f"Workflow {'activated' if workflow.is_active else 'deactivated'}.",
         })
 
+    # ── Versioning ────────────────────────────────────────────────────────
+    @action(detail=True, methods=['post'])
+    def publish(self, request, pk=None):
+        from django.utils import timezone
+        from django.db import models
+        workflow = self.get_object()
+        
+        if workflow.parent_workflow_id:
+            root_id = workflow.parent_workflow_id
+        else:
+            root_id = workflow.pk
+            
+        Workflow.objects.filter(
+            models.Q(pk=root_id) | models.Q(parent_workflow_id=root_id)
+        ).exclude(pk=workflow.pk).update(status='ARCHIVED', is_active_version=False, is_active=False)
+        
+        workflow.status = 'PUBLISHED'
+        workflow.is_active_version = True
+        workflow.is_active = True
+        workflow.published_at = timezone.now()
+        workflow.save(update_fields=['status', 'is_active_version', 'is_active', 'published_at'])
+        
+        return Response({'detail': 'Workflow published successfully', 'version': workflow.version})
+        
+    @action(detail=True, methods=['post'])
+    def create_draft(self, request, pk=None):
+        workflow = self.get_object()
+        
+        if workflow.status != 'PUBLISHED':
+            return Response({'detail': 'Can only create draft from a PUBLISHED workflow'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        new_workflow = Workflow.objects.get(pk=workflow.pk)
+        new_workflow.pk = None
+        new_workflow.status = 'DRAFT'
+        new_workflow.is_active_version = False
+        new_workflow.is_active = False
+        new_workflow.version = workflow.version + 1
+        new_workflow.parent_workflow_id = workflow.parent_workflow_id or workflow.pk
+        new_workflow.save()
+        
+        for cond in workflow.conditions.all():
+            cond.pk = None
+            cond.workflow = new_workflow
+            cond.save()
+            
+        action_mapping = {}
+        for action in workflow.actions.all().order_by('order'):
+            old_pk = action.pk
+            action.pk = None
+            action.workflow = new_workflow
+            if action.parent_action_id and action.parent_action_id in action_mapping:
+                action.parent_action_id = action_mapping[action.parent_action_id]
+            action.save()
+            action_mapping[old_pk] = action.pk
+            
+        return Response(WorkflowSerializer(new_workflow).data)
+
 
 class WorkflowLogViewSet(
     mixins.ListModelMixin,
@@ -163,6 +220,43 @@ class WorkflowLogViewSet(
     filterset_fields   = ['status', 'workflow', 'trigger_event']
     search_fields      = ['message', 'object_id']
     ordering_fields    = ['executed_at']
+
+    @action(detail=True, methods=['post'])
+    def retry(self, request, pk=None):
+        log = self.get_object()
+        workflow = log.workflow
+        
+        MODULE_APP_MAP = {
+            'lead':    'leads', 'deal':    'deals', 'task':    'tasks',
+            'contact': 'contacts', 'project': 'projects', 'quote':   'quotes',
+            'invoice': 'invoices', 'case':    'support',
+        }
+        from django.apps import apps
+        from .engine import _run_workflow
+        import threading
+        
+        try:
+            Model = apps.get_model(app_label=MODULE_APP_MAP[workflow.module], model_name=workflow.module)
+            instance = Model.objects.get(pk=log.object_id)
+        except Exception as exc:
+            return Response({'detail': f"Object missing: {exc}"}, status=status.HTTP_404_NOT_FOUND)
+            
+        def _run():
+            try:
+                event = {
+                    'module': workflow.module,
+                    'trigger': log.trigger_event,
+                    'extra': {},
+                }
+                _run_workflow(workflow, instance, event, log.execution_key, WorkflowLog)
+            except Exception as e:
+                logger.error(e)
+                
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        t.join(timeout=6)
+        
+        return Response({'detail': 'Retry execution initiated.'})
 
 
 class WorkflowTraceViewSet(viewsets.ReadOnlyModelViewSet):

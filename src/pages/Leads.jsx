@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Table from '../components/Table';
+import CollaborationHub from '../components/CollaborationHub';
 import { leadsApi, contactsApi, dealsApi, activitiesApi, tasksApi, callsApi, meetingsApi } from '../services/api';
 import { usePagination } from '../hooks/usePagination';
 import Pagination from '../components/Pagination';
@@ -223,7 +224,7 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
     }
   };
 
-  const SIDEBAR_ITEMS = ['Overview', 'Notes', 'Emails', 'Activities', 'Deals', 'Tasks', 'Attachments'];
+  const SIDEBAR_ITEMS = ['Overview', 'Collaboration', 'Notes', 'Emails', 'Activities', 'Deals', 'Tasks', 'Attachments'];
 
   return (
     <div className="bg-[#F8FAFC] min-h-screen">
@@ -763,6 +764,13 @@ function LeadDetailView({ lead, onBack, onEdit, onDelete, onConvert, onStatusCha
             </RelatedSection>
           )}
 
+          {/* ── Related: Collaboration ── */}
+          {activeSection === 'collaboration' && (
+            <div className="p-6 h-[calc(100vh-200px)]">
+              <CollaborationHub contentType="lead" objectId={lead.id} />
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -1124,8 +1132,22 @@ export default function Leads() {
       setIsModalOpen(false);
       fetchLeads();
     } catch (err) {
-      console.error('Failed to save lead', err);
-      addToast('Error saving lead. Please check your inputs.', 'error');
+      console.error('Failed to save lead', err.response?.data || err);
+      let errorMsg = 'Error saving lead. Please check your inputs.';
+      const data = err.response?.data;
+      if (data) {
+        if (Array.isArray(data) && data.length > 0) {
+          errorMsg = data[0];
+        } else if (typeof data === 'object' && data.detail) {
+          errorMsg = data.detail;
+        } else if (typeof data === 'object') {
+          const firstKey = Object.keys(data)[0];
+          if (firstKey) {
+            errorMsg = Array.isArray(data[firstKey]) ? data[firstKey][0] : `${firstKey}: ${data[firstKey]}`;
+          }
+        }
+      }
+      addToast(errorMsg, 'error');
     } finally {
       setIsSubmitting(false);
     }

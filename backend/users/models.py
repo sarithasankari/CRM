@@ -9,7 +9,13 @@ class Permission(models.Model):
         return self.name
 
 class Role(models.Model):
+    SCOPE_CHOICES = (
+        ('own', 'Own Records Only'),
+        ('team', 'Team Records'),
+        ('global', 'Global Access'),
+    )
     name = models.CharField(max_length=50, unique=True) # e.g., Admin, Manager
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default='own')
     permissions = models.ManyToManyField(Permission, related_name='roles')
 
     def __str__(self):
@@ -94,6 +100,51 @@ class AuditLog(models.Model):
     ip_address = models.GenericIPAddressField(blank=True, null=True)
     timestamp = models.DateTimeField(auto_now_add=True)
     device = models.CharField(max_length=255, blank=True, null=True)
+    impersonated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='impersonated_actions')
+    is_suspicious = models.BooleanField(default=False)
+    risk_score = models.IntegerField(default=0) # 0-100
+    metadata = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return f"{self.user.username} - {self.action_type} at {self.timestamp}"
+
+
+class SecurityPolicy(models.Model):
+    min_password_length = models.PositiveIntegerField(default=8)
+    require_special_chars = models.BooleanField(default=True)
+    require_numbers = models.BooleanField(default=True)
+    require_uppercase = models.BooleanField(default=True)
+    password_expiry_days = models.PositiveIntegerField(default=90)
+    max_login_attempts = models.PositiveIntegerField(default=5)
+    session_timeout_minutes = models.PositiveIntegerField(default=30)
+    enforce_2fa_globally = models.BooleanField(default=False)
+    last_updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Security Policies"
+
+    def __str__(self):
+        return f"Global Security Policy (Last Updated: {self.last_updated})"
+
+
+class Notification(models.Model):
+    TYPES = (
+        ('info', 'Information'),
+        ('success', 'Success'),
+        ('warning', 'Warning'),
+        ('error', 'Error'),
+        ('workflow', 'Workflow Alert'),
+    )
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications_set')
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    type = models.CharField(max_length=20, choices=TYPES, default='info')
+    is_read = models.BooleanField(default=False)
+    link = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.title}"

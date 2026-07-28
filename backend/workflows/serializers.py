@@ -17,7 +17,7 @@ class WorkflowActionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'action_type', 'order',
             'assignment_type', 'specific_user', 'delay_days', 'priority',
-            'action_data',
+            'action_data', 'parent_action', 'branch_label', 'position_x', 'position_y'
         ]
 
 
@@ -89,7 +89,8 @@ class WorkflowSerializer(serializers.ModelSerializer):
         model  = Workflow
         fields = [
             'id', 'name', 'description', 'module', 'trigger_event',
-            'condition_logic', 'is_active',
+            'condition_logic', 'is_active', 'status', 'version',
+            'is_active_version', 'published_at', 'parent_workflow',
             'created_at', 'updated_at',
             'conditions', 'actions', 'log_count',
         ]

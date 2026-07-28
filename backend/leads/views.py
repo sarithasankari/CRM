@@ -72,7 +72,20 @@ class LeadViewSet(viewsets.ModelViewSet):
         return base_qs.none()
 
     def perform_create(self, serializer):
-        serializer.save(assigned_to=self.request.user)
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        try:
+            serializer.save(assigned_to=self.request.user)
+        except DjangoValidationError as e:
+            raise DRFValidationError(detail=e.messages)
+
+    def perform_update(self, serializer):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        try:
+            serializer.save()
+        except DjangoValidationError as e:
+            raise DRFValidationError(detail=e.messages)
 
     def perform_destroy(self, instance):
         instance.soft_delete()

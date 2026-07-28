@@ -125,60 +125,70 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_i
             chain_id=chain_id or '',
         )
 
-        # 4. Execute actions with retry logic
+        # 4. Execute actions with DAG (Tree) traversal
         success_count = 0
         failure_count = 0
         completed_actions = []  # Track for compensation logic
         
         actions = workflow.actions.all().order_by('order', 'pk')
         logger.info(f"[WorkflowEngine] Found {actions.count()} actions for workflow {workflow.name}")
+        
+        # Build DAG representation
+        action_map = {action.pk: action for action in actions}
+        children_map = {action.pk: [] for action in actions}
+        root_actions = []
+        
         for action in actions:
+            if action.parent_action_id:
+                if action.parent_action_id in children_map:
+                    children_map[action.parent_action_id].append(action)
+            else:
+                root_actions.append(action)
+
+        def traverse_and_execute(action_node):
+            nonlocal success_count, failure_count
             action_status = 'failure'
             action_message = ''
             error_details = ''
             
-            # 4a. Idempotency Check (Requirement 2)
-            idempotency_key = _make_action_idempotency_key(action, instance, event)
+            # 4a. Idempotency Check
+            idempotency_key = _make_action_idempotency_key(action_node, instance, event)
             from workflows.models import WorkflowActionExecution
             if WorkflowActionExecution.objects.filter(fingerprint=idempotency_key).exists():
-                logger.info(f"[Workflow] Action {action.pk} already executed for this chain. Skipping.")
+                logger.info(f"[Workflow] Action {action_node.pk} already executed for this chain. Skipping.")
                 success_count += 1
-                continue
-
-            # 4b. Simple retry loop (Max 3 attempts for transient errors)
+                return True # continue traversal
+                
+            # 4b. Simple retry loop
             for attempt in range(3):
                 try:
-                    # Use a sub-transaction (savepoint) for each action
                     with transaction.atomic():
-                        # Pass chain_id to actions so they can propagate it if they trigger new events
                         event['chain_id'] = chain_id
-                        logger.info(f"[WorkflowEngine] Executing action {action.pk} ({action.action_type}) for {workflow.name}")
-                        result = execute_action(action, instance, event)
+                        logger.info(f"[WorkflowEngine] Executing action {action_node.pk} ({action_node.action_type}) for {workflow.name}")
+                        result = execute_action(action_node, instance, event)
                         action_status = result.status
                         action_message = result.message
                         
-                        # Record successful execution for idempotency
                         if action_status in {'success', 'skipped'}:
                             WorkflowActionExecution.objects.create(
-                                action=action,
+                                action=action_node,
                                 workflow=workflow,
                                 fingerprint=idempotency_key,
                                 object_key=f"{instance._meta.label_lower}:{instance.pk}"
                             )
-                            completed_actions.append((action, result))
+                            completed_actions.append((action_node, result))
                         break  # Success!
                 except Exception as exc:
                     action_message = str(exc)
                     error_details = f"Attempt {attempt+1} failed: {exc}"
                     if attempt < 2:
-                        logger.warning(f"[Workflow] Retrying action {action.pk} (Attempt {attempt+2}) due to: {exc}")
                         continue
-                    logger.error(f"[Workflow] Permanent failure for action {action.pk}: {exc}", exc_info=True)
+                    logger.error(f"[Workflow] Permanent failure for action {action_node.pk}: {exc}", exc_info=True)
 
             # Log granular action result
             WorkflowActionLog.objects.create(
                 workflow_log=log,
-                action=action,
+                action=action_node,
                 status=action_status,
                 message=action_message,
                 error_details=error_details,
@@ -188,13 +198,24 @@ def _run_workflow(workflow, instance, event, execution_key, WorkflowLog, chain_i
             
             if action_status in {'success', 'skipped'}:
                 success_count += 1
+                
+                # DAG Traversal: Branch Logic Evaluation (Future expansion point for IF/ELSE)
+                # Currently we execute all children. Future: filter children based on branch_label evaluation
+                children = children_map.get(action_node.pk, [])
+                for child in children:
+                    traverse_and_execute(child)
+                return True
             else:
                 failure_count += 1
-                # Permanent failure in a multi-step workflow triggers compensation (Requirement 4)
-                if workflow.actions.count() > 1:
-                    logger.warning(f"[Workflow] Permanent failure in multi-step workflow {workflow.name}. Triggering compensation.")
-                    _compensate_workflow(completed_actions, instance, event)
-                    break # Stop executing further actions in this workflow
+                return False
+
+        # Start traversal from root nodes
+        for root in root_actions:
+            success = traverse_and_execute(root)
+            if not success and workflow.actions.count() > 1:
+                logger.warning(f"[Workflow] Permanent failure in multi-step workflow {workflow.name}. Triggering compensation.")
+                _compensate_workflow(completed_actions, instance, event)
+                break # Stop executing further root actions
 
         # 5. Determine final status
         if failure_count == 0:

@@ -128,8 +128,87 @@ export const authService = {
     const response = await api.post('/security/sessions/logout-all/');
     return response.data;
   },
-  getAuditLogs: async () => {
-    const response = await api.get('/security/audit-logs/');
+  getAuditLogs: async (params = {}) => {
+    const response = await api.get('/security/audit-logs/', { params });
+    return response.data;
+  },
+  getSecurityPolicy: async () => {
+    const response = await api.get('/security/policy/');
+    return response.data;
+  },
+  updateSecurityPolicy: async (data) => {
+    const response = await api.put('/security/policy/', data);
+    return response.data;
+  }
+};
+
+export const securityApi = {
+  getPolicy: async () => {
+    const response = await api.get('/security/policy/');
+    return response.data;
+  },
+  updatePolicy: async (data) => {
+    const response = await api.put('/security/policy/', data);
+    return response.data;
+  },
+  getSessions: async () => {
+    const response = await api.get('/security/sessions/');
+    return response.data;
+  },
+  logoutSession: async (id) => {
+    const response = await api.post(`/security/sessions/${id}/logout/`);
+    return response.data;
+  },
+  logoutAllSessions: async () => {
+    const response = await api.post('/security/sessions/logout-all/');
+    return response.data;
+  }
+};
+
+export const auditLogsApi = {
+  getAll: async (params = {}) => {
+    const response = await api.get('/security/audit-logs/', { params });
+    return response.data;
+  }
+};
+
+export const notificationsApi = {
+  getAll: async (params = {}) => {
+    const response = await api.get('/notifications/', { params });
+    return response.data;
+  },
+  markAsRead: async (id) => {
+    const response = await api.post(`/notifications/${id}/read/`);
+    return response.data;
+  },
+  markAllRead: async () => {
+    const response = await api.post('/notifications/mark-all-read/');
+    return response.data;
+  },
+  getUnreadCount: async () => {
+    const response = await api.get('/notifications/unread-count/');
+    return response.data;
+  }
+};
+
+export const commentsApi = {
+  getAll: async (params = {}) => {
+    const response = await api.get('/comments/', { params });
+    return response.data;
+  },
+  create: async (data) => {
+    const response = await api.post('/comments/', data);
+    return response.data;
+  },
+  getByRecord: async (contentType, objectId) => {
+    const response = await api.get('/comments/', { params: { content_type: contentType, object_id: objectId } });
+    return response.data;
+  }
+};
+
+export const activityFeedApi = {
+  getFeed: async () => {
+    const response = await api.get('/activity-feed/');
     return response.data;
   }
 };
@@ -221,8 +300,37 @@ export const contactsApi = createResource('contacts');
 export const activitiesApi = createResource('activities');
 export const projectsApi = createResource('projects');
 export const milestonesApi = createResource('milestones');
-export const workflowsApi = createResource('workflows');
-export const workflowLogsApi = createResource('workflow-logs');
+export const workflowsApi = {
+  ...createResource('workflows'),
+  toggle: async (id) => {
+    const response = await api.post(`/workflows/${id}/toggle/`);
+    return response.data;
+  },
+  publish: async (id) => {
+    const response = await api.post(`/workflows/${id}/publish/`);
+    return response.data;
+  },
+  createDraft: async (id) => {
+    const response = await api.post(`/workflows/${id}/create_draft/`);
+    return response.data;
+  },
+  testTrigger: async (id, object_id) => {
+    const response = await api.post(`/workflows/${id}/test_trigger/`, { object_id });
+    return response.data;
+  },
+  getLogs: async (id, params = {}) => {
+    const response = await api.get(`/workflows/${id}/logs/`, { params });
+    return response.data;
+  }
+};
+export const workflowLogsApi = {
+  ...createResource('workflow-logs'),
+  retry: async (id) => {
+    const response = await api.post(`/workflow-logs/${id}/retry/`);
+    return response.data;
+  }
+};
+export const workflowTracesApi = createResource('workflow-traces');
 export const quotesApi = {
   ...createResource('quotes'),
   generateInvoice: async (id) => {
@@ -258,7 +366,13 @@ export const supportStatsApi = {
 export const usersApi = createResource('users');
 export const meetingsApi = createResource('meetings');
 export const productsApi = createResource('products');
-export const rolesApi = createResource('roles');
+export const rolesApi = {
+  ...createResource('roles'),
+  getPermissions: async () => {
+    const response = await api.get('/roles/permissions/');
+    return response.data;
+  }
+};
 export const callsApi = {
   ...createResource('calls'),
   startCall: async (data) => {

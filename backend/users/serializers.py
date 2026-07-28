@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import CompanyProfile, Role, LoginHistory, UserSession, AuditLog
+from .models import CompanyProfile, Role, LoginHistory, UserSession, AuditLog, Permission, SecurityPolicy, Notification
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from django_user_agents.utils import get_user_agent
@@ -62,14 +62,37 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class RoleSerializer(serializers.ModelSerializer):
-    permissions_list = serializers.SerializerMethodField()
+    permissions_list = serializers.ListField(
+        child=serializers.CharField(), write_only=True, required=False
+    )
+    permissions = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Role
-        fields = ('id', 'name', 'permissions_list')
+        fields = ('id', 'name', 'scope', 'permissions', 'permissions_list')
 
-    def get_permissions_list(self, obj):
+    def get_permissions(self, obj):
         return list(obj.permissions.values_list('name', flat=True))
+
+    def create(self, validated_data):
+        permissions_data = validated_data.pop('permissions_list', [])
+        role = Role.objects.create(**validated_data)
+        if permissions_data:
+            perms = Permission.objects.filter(name__in=permissions_data)
+            role.permissions.set(perms)
+        return role
+
+    def update(self, instance, validated_data):
+        permissions_data = validated_data.pop('permissions_list', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        if permissions_data is not None:
+            perms = Permission.objects.filter(name__in=permissions_data)
+            instance.permissions.set(perms)
+            
+        return instance
 
 class LoginHistorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -84,7 +107,7 @@ class UserSessionSerializer(serializers.ModelSerializer):
 class AuditLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = AuditLog
-        fields = '__all__'
+        fields = ('id', 'user', 'action_type', 'module', 'old_value', 'new_value', 'ip_address', 'timestamp', 'device', 'impersonated_by', 'is_suspicious', 'risk_score', 'metadata')
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
@@ -104,16 +127,25 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             # Extract IP
             ip_address = request.META.get('REMOTE_ADDR')
             
-            # Extract JTI from tokens
-            refresh_token = RefreshToken(data['refresh'])
-            refresh_jti = refresh_token['jti']
+            # Basic Risk Detection
+            is_suspicious = False
+            risk_score = 0
+            risk_metadata = {}
             
-            access_token = refresh_token.access_token
-            jti = access_token['jti']
-            
-            expires_at = timezone.now() + refresh_token.lifetime
+            last_login = LoginHistory.objects.filter(user=user).order_by('-timestamp').first()
+            if last_login:
+                if last_login.ip_address != ip_address:
+                    is_suspicious = True
+                    risk_score += 20
+                    risk_metadata['new_ip'] = True
             
             # Create UserSession
+            refresh_token = RefreshToken(data['refresh'])
+            refresh_jti = refresh_token['jti']
+            access_token = refresh_token.access_token
+            jti = access_token['jti']
+            expires_at = timezone.now() + refresh_token.lifetime
+            
             UserSession.objects.create(
                 user=user,
                 session_key=jti,
@@ -127,15 +159,30 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 expires_at=expires_at
             )
             
-            # Create Audit Log
+            # Create Audit Log with risk flags
             AuditLog.objects.create(
                 user=user,
                 action_type='LOGIN_SUCCESS',
                 module='auth',
                 ip_address=ip_address,
-                device=device
+                device=device,
+                is_suspicious=is_suspicious,
+                risk_score=risk_score,
+                metadata=risk_metadata
             )
             
             data['session_id'] = jti
             
         return data
+
+
+class SecurityPolicySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SecurityPolicy
+        fields = '__all__'
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = '__all__'

@@ -1,4 +1,5 @@
 import logging
+import re
 from django.db.models import Count, Sum, Q, F
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
@@ -6,11 +7,66 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.core.mail import send_mail
 from django.conf import settings
+from django.contrib.auth import get_user_model
 
-from .models import Activity, Meeting, Call
-from .serializers import ActivitySerializer, MeetingSerializer, CallSerializer
+from .models import Activity, Meeting, Call, Comment, Mention
+from .serializers import ActivitySerializer, MeetingSerializer, CallSerializer, CommentSerializer
+from users.models import Notification
 
+User = get_user_model()
 logger = logging.getLogger(__name__)
+
+from realtime.bus import RealtimeEventBus, emit_notification
+
+class CommentViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CommentSerializer
+
+    def get_queryset(self):
+        queryset = Comment.objects.all()
+        content_type = self.request.query_params.get('content_type')
+        object_id = self.request.query_params.get('object_id')
+        if content_type and object_id:
+            queryset = queryset.filter(content_type__model=content_type, object_id=object_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        comment = serializer.save(user=self.request.user)
+        
+        # Emit comment event to record channel
+        RealtimeEventBus.broadcast(
+            "comment.created", 
+            CommentSerializer(comment).data,
+            record_type=comment.content_type.model,
+            record_id=comment.object_id
+        )
+        
+        # Parse mentions: @username
+        mentions = re.findall(r'@(\w+)', comment.text)
+        for username in mentions:
+            try:
+                mentioned_user = User.objects.get(username=username)
+                Mention.objects.create(comment=comment, user=mentioned_user)
+                
+                # Trigger Notification
+                notif = Notification.objects.create(
+                    user=mentioned_user,
+                    title="New Mention",
+                    message=f"{self.request.user.username} mentioned you in a comment.",
+                    type='info',
+                    link=f"/leads/{comment.object_id}" # Better link
+                )
+                
+                # Emit notification event to personal channel
+                emit_notification(mentioned_user.id, {
+                    "id": notif.id,
+                    "title": notif.title,
+                    "message": notif.message,
+                    "type": notif.type,
+                    "created_at": notif.created_at.isoformat()
+                })
+            except User.DoesNotExist:
+                pass
 
 class ActivityViewSet(viewsets.ModelViewSet):
     queryset = Activity.objects.all()
@@ -36,6 +92,30 @@ class CallViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+
+class UnifiedActivityViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        # Fetch Activities
+        activities = Activity.objects.all().order_by('-created_at')[:20]
+        act_serializer = ActivitySerializer(activities, many=True)
+        for d in act_serializer.data:
+            d['feed_type'] = 'activity'
+            d['timestamp'] = d['created_at']
+
+        # Fetch Comments
+        comments = Comment.objects.all().order_by('-created_at')[:20]
+        com_serializer = CommentSerializer(comments, many=True)
+        for d in com_serializer.data:
+            d['feed_type'] = 'comment'
+            d['timestamp'] = d['created_at']
+
+        # Combine and sort
+        combined = act_serializer.data + com_serializer.data
+        combined.sort(key=lambda x: x['timestamp'], reverse=True)
+
+        return Response(combined[:30])
 
 class SendEmailAPIView(APIView):
     """

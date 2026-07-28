@@ -8,7 +8,7 @@ import {
   PieChart, Users, Building2, BarChart3, Settings, Zap,
   LayoutGrid, Activity, ShieldCheck, Database, RefreshCw, Cloud
 } from 'lucide-react';
-import logoImg from '../assets/logo.png';
+import logoImg from '../assets/logo.svg';
 
 const navigationConfig = [
   { name: 'Dashboard', icon: PieChart, href: '/' },

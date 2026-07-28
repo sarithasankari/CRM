@@ -106,6 +106,39 @@ class Call(models.Model):
 
 
 
+class Comment(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='collaboration_comments')
+    text = models.TextField()
+    
+    # Generic relation to Lead/Deal/Task/Ticket etc.
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    related_to = GenericForeignKey('content_type', 'object_id')
+    
+    # Threading
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='replies')
+    
+    # Metadata
+    is_internal = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment by {self.user.username} on {self.related_to}"
+
+
+class Mention(models.Model):
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, related_name='mentions')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='mentions_received')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Mention of {self.user.username} in comment {self.comment.id}"
+
+
 class AuditLog(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     action = models.CharField(max_length=50) # create, update, delete

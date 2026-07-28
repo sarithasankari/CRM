@@ -52,6 +52,12 @@ class Workflow(models.Model):
         ('OR',  'Any condition must match (OR)'),
     ]
 
+    STATUS_CHOICES = [
+        ('DRAFT', 'Draft'),
+        ('PUBLISHED', 'Published'),
+        ('ARCHIVED', 'Archived'),
+    ]
+
     name             = models.CharField(max_length=255)
     description      = models.TextField(blank=True, default='')
     module           = models.CharField(max_length=50, choices=MODULE_CHOICES)
@@ -63,6 +69,15 @@ class Workflow(models.Model):
         help_text="How multiple conditions are combined."
     )
     is_active        = models.BooleanField(default=True)
+    
+    # Versioning & Audit
+    status             = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
+    parent_workflow    = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='versions')
+    version            = models.PositiveIntegerField(default=1)
+    is_active_version  = models.BooleanField(default=True)
+    published_at       = models.DateTimeField(null=True, blank=True)
+    created_by         = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_workflows')
+
     debounce_minutes = models.PositiveIntegerField(
         default=5,
         help_text="Prevent duplicate executions within N minutes for same object."
@@ -153,6 +168,12 @@ class WorkflowAction(models.Model):
 
     workflow        = models.ForeignKey(Workflow, related_name='actions', on_delete=models.CASCADE)
     action_type     = models.CharField(max_length=50, choices=ACTION_TYPE_CHOICES)
+    
+    # DAG / Tree Architecture
+    parent_action   = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='child_actions')
+    branch_label    = models.CharField(max_length=255, blank=True, default='')
+    position_x      = models.FloatField(default=0.0)
+    position_y      = models.FloatField(default=0.0)
     order           = models.PositiveIntegerField(default=0, help_text="Execution order (lower = first)")
 
     # ── Task creation fields ───────────────────────────────────────────────
